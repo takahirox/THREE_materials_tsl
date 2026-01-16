@@ -1,0 +1,12 @@
+node_modules/
+**/node_modules/
+**/.vite/
+dist/
+**/dist/
+*.log
+.DS_Store
+coverage/
+**/coverage/
+*.tsbuildinfo
+*.tmp
+*.swp

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>THREE_materials_tsl Demo</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="header">
+        <div>
+          <p class="eyebrow">THREE_materials_tsl</p>
+          <h1>NodeMaterial Round-Trip <a class="repo-link" href="https://github.com/takahirox/THREE_materials_tsl" target="_blank" rel="noopener noreferrer">GitHub</a></h1>
+        </div>
+        <div class="badge">r182</div>
+      </header>
+      <div class="layout">
+        <section class="stage">
+          <canvas id="viewport"></canvas>
+        </section>
+        <section class="controls">
+          <div class="controls-header">
+            <h3>Parameters</h3>
+            <button id="apply" class="apply-button" type="button">Apply to Exported</button>
+          </div>
+          <div class="controls-groups">
+            <div class="control-group">
+              <h4>Material</h4>
+              <div class="controls-grid">
+                <label class="control">
+                  <span>Base Color</span>
+                  <input id="baseColor" type="color" value="#101b2b" />
+                </label>
+                <label class="control">
+                  <span>Line Color</span>
+                  <input id="lineColor" type="color" value="#47f0ff" />
+                </label>
+                <label class="control">
+                  <span>Line Density</span>
+                  <input id="lineDensity" type="range" min="4" max="40" step="0.5" value="16" />
+                  <span id="lineDensityValue" class="value"></span>
+                </label>
+                <label class="control">
+                  <span>Line Width</span>
+                  <input id="lineWidth" type="range" min="0.05" max="0.8" step="0.01" value="0.18" />
+                  <span id="lineWidthValue" class="value"></span>
+                </label>
+                <label class="control">
+                  <span>Stripe Speed</span>
+                  <input id="flowSpeed" type="range" min="0" max="4" step="0.05" value="1.6" />
+                  <span id="flowSpeedValue" class="value"></span>
+                </label>
+                <label class="control">
+                  <span>Roughness</span>
+                  <input id="roughness" type="range" min="0" max="1" step="0.01" value="0.1" />
+                  <span id="roughnessValue" class="value"></span>
+                </label>
+                <label class="control">
+                  <span>Metalness</span>
+                  <input id="metalness" type="range" min="0" max="1" step="0.01" value="0.9" />
+                  <span id="metalnessValue" class="value"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <section class="panel">
+        <h3>Export Snapshot</h3>
+        <pre id="exported"></pre>
+      </section>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
