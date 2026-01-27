@@ -2,20 +2,7 @@ import { REVISION } from 'three';
 
 import type { BufferAttribute, Material, Texture } from 'three';
 import type { GLTFWriter } from 'three/examples/jsm/exporters/GLTFExporter.js';
-
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-
-type LinkDefinition = {
-  $ref?: string;
-  $refTex?: number;
-  $refAccessor?: number;
-};
+import type { JsonValue, LinkDefinition, NodeDefinition, NodeExport } from './types.js';
 
 type LinkTarget =
   | LinkDefinition
@@ -23,18 +10,6 @@ type LinkTarget =
   | { texture: Texture }
   | { accessor: BufferAttribute }
   | unknown;
-
-type NodeDefinition = {
-  op: string;
-  args?: JsonValue;
-  links?: Record<string, LinkDefinition>;
-};
-
-type NodeExport = {
-  op: string;
-  args?: JsonValue;
-  links?: Record<string, LinkTarget>;
-};
 
 export type THREEMaterialsTSLExporterPluginOptions = {
   nodeSerializer: (node: unknown) => NodeExport | null;

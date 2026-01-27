@@ -1,6 +1,6 @@
 {
   "name": "@takahirox/gltf-three-materials-tsl-loader",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "GLTFLoader plugin for THREE_materials_tsl",
   "license": "MIT",
   "type": "module",

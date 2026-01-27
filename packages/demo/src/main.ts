@@ -17,14 +17,11 @@ import AttributeNode from 'three/src/nodes/core/AttributeNode.js';
 import UniformNode from 'three/src/nodes/core/UniformNode.js';
 import MathNode from 'three/src/nodes/math/MathNode.js';
 import OperatorNode from 'three/src/nodes/math/OperatorNode.js';
-import { time } from 'three/src/nodes/utils/Timer.js';
 import type { GLTF, GLTFLoaderPlugin, GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { GLTFExporterPlugin, GLTFWriter } from 'three/examples/jsm/exporters/GLTFExporter.js';
-import type { MathNodeMethod } from 'three/src/nodes/math/MathNode.js';
-import type { OperatorNodeOp } from 'three/src/nodes/math/OperatorNode.js';
 
-import { THREEMaterialsTSLLoaderPlugin } from '@loader';
-import { THREEMaterialsTSLExporterPlugin, getSharedTSLNodeName } from '@exporter';
+import { THREEMaterialsTSLLoaderPlugin, createDefaultNodeResolver } from '@loader';
+import { THREEMaterialsTSLExporterPlugin, createDefaultNodeSerializer } from '@exporter';
 
 const canvas = document.getElementById('viewport') as HTMLCanvasElement;
 const exportView = document.getElementById('exported') as HTMLPreElement;
@@ -37,32 +34,14 @@ const lineWidthInput = document.getElementById('lineWidth') as HTMLInputElement;
 const lineWidthValue = document.getElementById('lineWidthValue') as HTMLSpanElement;
 const flowSpeedInput = document.getElementById('flowSpeed') as HTMLInputElement;
 const flowSpeedValue = document.getElementById('flowSpeedValue') as HTMLSpanElement;
+const vertexAmplitudeInput = document.getElementById('vertexAmplitude') as HTMLInputElement;
+const vertexAmplitudeValue = document.getElementById('vertexAmplitudeValue') as HTMLSpanElement;
+const vertexSpeedInput = document.getElementById('vertexSpeed') as HTMLInputElement;
+const vertexSpeedValue = document.getElementById('vertexSpeedValue') as HTMLSpanElement;
 const roughnessInput = document.getElementById('roughness') as HTMLInputElement;
 const roughnessValue = document.getElementById('roughnessValue') as HTMLSpanElement;
 const metalnessInput = document.getElementById('metalness') as HTMLInputElement;
 const metalnessValue = document.getElementById('metalnessValue') as HTMLSpanElement;
-
-type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-
-type NodeExportLike = {
-  op: string;
-  args?: JsonValue;
-  links?: Record<string, unknown>;
-};
-
-const buildArgs = (entries: Array<[string, JsonValue | undefined]>) => {
-  const args: Record<string, JsonValue> = {};
-  for (const [key, value] of entries) {
-    if (value !== undefined) args[key] = value;
-  }
-  return args;
-};
 
 const scene = new Scene();
 
@@ -87,13 +66,21 @@ const lineColor = new UniformNode(new Color(0.28, 0.94, 1.0), 'color');
 const lineDensity = new UniformNode(16.0, 'float');
 const lineWidth = new UniformNode(0.18, 'float');
 const flowSpeed = new UniformNode(1.6, 'float');
+const vertexAmplitude = new UniformNode(0.08, 'float');
+const vertexSpeed = new UniformNode(1.2, 'float');
 const uvNode = new AttributeNode('uv', 'vec2');
 const positionNode = new AttributeNode('position', 'vec3');
 const stripeAxis = new ConstNode(new Vector2(1.0, 0.6), 'vec2');
+const waveAxis = new ConstNode(new Vector3(0, 1, 0), 'vec3');
+const phaseAxis = new ConstNode(new Vector3(0.45, 1, 0.45), 'vec3');
+const stripeDetail = new ConstNode(1.8, 'float');
+const vertexDetail = new ConstNode(4.0, 'float');
 const stripeCoord = new MathNode(MathNode.DOT, uvNode, stripeAxis);
+const vertexCoord = new MathNode(MathNode.DOT, positionNode, phaseAxis);
+const stripeDensity = new OperatorNode('*', lineDensity, stripeDetail);
 const flowPhase = new OperatorNode(
   '+',
-  new OperatorNode('*', stripeCoord, lineDensity),
+  new OperatorNode('*', stripeCoord, stripeDensity),
   new OperatorNode('*', timeUniform, flowSpeed)
 );
 const stripeWave = new MathNode(MathNode.SIN, flowPhase);
@@ -106,9 +93,18 @@ const lineStrength = new ConstNode(1.8, 'float');
 const glowBoost = new OperatorNode('*', animatedGlow, lineStrength);
 const mixed = new OperatorNode('*', lineColor, glowBoost);
 const finalColor = new OperatorNode('+', baseColor, mixed);
+const vertexPhase = new OperatorNode(
+  '+',
+  new OperatorNode('*', vertexCoord, vertexDetail),
+  new OperatorNode('*', timeUniform, vertexSpeed)
+);
+const vertexWave = new MathNode(MathNode.SIN, vertexPhase);
+const vertexOffset = new OperatorNode('*', waveAxis, new OperatorNode('*', vertexWave, vertexAmplitude));
+const displacedPosition = new OperatorNode('+', positionNode, vertexOffset);
 
 const material = new MeshStandardNodeMaterial();
 material.emissiveNode = finalColor;
+material.positionNode = displacedPosition;
 material.roughness = 0.1;
 material.metalness = 0.9;
 
@@ -125,115 +121,19 @@ function createExporter() {
   exporter.register(
     (writer: GLTFWriter) =>
       new THREEMaterialsTSLExporterPlugin(writer, {
-        entrypoints: ['emissiveNode'],
+        entrypoints: ['emissiveNode', 'positionNode'],
         includeThreeRevision: true,
-        nodeSerializer: (node: unknown): NodeExportLike | null => {
-          const sharedName = getSharedTSLNodeName(node);
-          if (sharedName) {
-            return {
-              op: sharedName
-            };
-          }
-          if (
-            node === time ||
-            (node && typeof node === 'object' && (node as { isUniformNode?: boolean }).isUniformNode &&
-              (node as { name?: string }).name === 'uTime')
-          ) {
-            return {
-              op: 'TimeNode',
-              args: buildArgs([['nodeType', 'float']])
-            };
-          }
-
-          if (node && typeof node === 'object' && (node as { type?: string }).type === 'AttributeNode') {
-            const attributeName = (node as { getAttributeName?: () => string }).getAttributeName?.();
-            const nodeType = (node as { nodeType?: string }).nodeType ?? null;
-            return {
-              op: 'AttributeNode',
-              args: buildArgs([
-                ['attributeName', attributeName],
-                ['nodeType', nodeType]
-              ])
-            };
-          }
-
-          if (node && typeof node === 'object' && (node as { isMathNode?: boolean }).isMathNode) {
-            const mathNode = node as { method: string; aNode?: unknown; bNode?: unknown; cNode?: unknown };
-            return {
-              op: 'MathNode',
-              args: buildArgs([['method', mathNode.method]]),
-              links: {
-                aNode: mathNode.aNode,
-                bNode: mathNode.bNode,
-                cNode: mathNode.cNode
+        nodeSerializer: createDefaultNodeSerializer({
+          overrides: {
+            UniformNode: (node) => {
+              const uniform = node as { isUniformNode?: boolean; name?: string };
+              if (uniform.isUniformNode && uniform.name === 'uTime') {
+                return { op: 'time' };
               }
-            };
-          }
-
-          if (
-            node &&
-            typeof node === 'object' &&
-            ((node as { isConstNode?: boolean }).isConstNode || (node as { isUniformNode?: boolean }).isUniformNode)
-          ) {
-            const value = (node as { value: unknown }).value;
-            if (value instanceof Color) {
-              return {
-                op: 'ConstNode',
-                args: {
-                  value: [value.r, value.g, value.b],
-                  valueType: 'color',
-                  nodeType: 'color'
-                }
-              };
-            }
-            if (value instanceof Vector2) {
-              return {
-                op: 'ConstNode',
-                args: {
-                  value: [value.x, value.y],
-                  valueType: 'vec2',
-                  nodeType: 'vec2'
-                }
-              };
-            }
-            if (value instanceof Vector3) {
-              return {
-                op: 'ConstNode',
-                args: {
-                  value: [value.x, value.y, value.z],
-                  valueType: 'vec3',
-                  nodeType: 'vec3'
-                }
-              };
-            }
-            if (typeof value === 'number') {
-              return {
-                op: 'ConstNode',
-                args: {
-                  value,
-                  valueType: 'float',
-                  nodeType: 'float'
-                }
-              };
+              return null;
             }
           }
-
-          if (node && typeof node === 'object' && (node as { isOperatorNode?: boolean }).isOperatorNode) {
-            const op = (node as { op: string }).op;
-            const aNode = (node as { aNode: unknown }).aNode;
-            const bNode = (node as { bNode: unknown }).bNode;
-            return {
-              op: 'OperatorNode',
-              args: buildArgs([['op', op]]),
-              links: {
-                aNode,
-                bNode
-              }
-            };
-          }
-
-          return null;
-        }
+        })
       }) as unknown as GLTFExporterPlugin
   );
   return exporter;
@@ -249,55 +149,7 @@ function createLoader() {
         onError: (error: unknown) => {
           exportView.textContent += `\n\nLoader error: ${error}`;
         },
-        nodeResolver: (op: string, args: unknown) => {
-        if (op === 'ConstNode') {
-          const argObj = args as { value: unknown; valueType?: string; nodeType?: string };
-          if (argObj.valueType === 'color' && Array.isArray(argObj.value)) {
-            const [r, g, b] = argObj.value as number[];
-            return new ConstNode(new Color(r, g, b), argObj.nodeType ?? 'color');
-          }
-          if (argObj.valueType === 'vec2' && Array.isArray(argObj.value)) {
-            const [x, y] = argObj.value as number[];
-            return new ConstNode(new Vector2(x, y), argObj.nodeType ?? 'vec2');
-          }
-          if (argObj.valueType === 'vec3' && Array.isArray(argObj.value)) {
-            const [x, y, z] = argObj.value as number[];
-            return new ConstNode(new Vector3(x, y, z), argObj.nodeType ?? 'vec3');
-          }
-          if (argObj.valueType === 'float') {
-            return new ConstNode(argObj.value as number, argObj.nodeType ?? 'float');
-          }
-        }
-
-        if (op === 'TimeNode') {
-          return time;
-        }
-
-        if (op === 'AttributeNode') {
-          const argObj = args as { attributeName?: string; nodeType?: string | null };
-          return new AttributeNode(argObj.attributeName ?? 'uv', argObj.nodeType ?? null);
-        }
-
-        if (op === 'MathNode') {
-          const argObj = args as { method: MathNodeMethod };
-          const placeholder = new ConstNode(0, 'float');
-          const MathNodeCtor = MathNode as unknown as new (
-            method: MathNodeMethod,
-            a: ConstNode<number>,
-            b?: ConstNode<number>,
-            c?: ConstNode<number>
-          ) => MathNode;
-          return new MathNodeCtor(argObj.method, placeholder);
-        }
-
-        if (op === 'OperatorNode') {
-          const argObj = args as { op: OperatorNodeOp };
-          const placeholder = new ConstNode(0, 'float');
-          return new OperatorNode(argObj.op, placeholder, placeholder);
-        }
-
-          return null;
-        }
+        nodeResolver: createDefaultNodeResolver()
       }) as unknown as GLTFLoaderPlugin
   );
   return loader;
@@ -396,6 +248,8 @@ function applyParameters() {
   lineWidth.value = Number(lineWidthInput.value);
   const flowSpeedScaled = Number(flowSpeedInput.value) * STRIPE_SPEED_SCALE;
   flowSpeed.value = flowSpeedScaled;
+  vertexAmplitude.value = Number(vertexAmplitudeInput.value);
+  vertexSpeed.value = Number(vertexSpeedInput.value);
   material.roughness = Number(roughnessInput.value);
   material.metalness = Number(metalnessInput.value);
 
@@ -403,6 +257,8 @@ function applyParameters() {
   lineDensityValue.textContent = lineDensityInput.value;
   lineWidthValue.textContent = lineWidthInput.value;
   flowSpeedValue.textContent = flowSpeedScaled.toFixed(2);
+  vertexAmplitudeValue.textContent = vertexAmplitudeInput.value;
+  vertexSpeedValue.textContent = vertexSpeedInput.value;
   roughnessValue.textContent = roughnessInput.value;
   metalnessValue.textContent = metalnessInput.value;
 }
@@ -418,6 +274,8 @@ function bindInputs() {
     lineDensityInput,
     lineWidthInput,
     flowSpeedInput,
+    vertexAmplitudeInput,
+    vertexSpeedInput,
     roughnessInput,
     metalnessInput,
   ];
