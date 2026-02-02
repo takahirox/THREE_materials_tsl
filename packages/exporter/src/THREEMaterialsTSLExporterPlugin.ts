@@ -2,13 +2,15 @@ import { REVISION } from 'three';
 
 import type { BufferAttribute, Material, Texture } from 'three';
 import type { GLTFWriter } from 'three/examples/jsm/exporters/GLTFExporter.js';
-import type { JsonValue, LinkDefinition, NodeDefinition, NodeExport } from './types.js';
+import type { JsonValue, LinkDefinition, LinkValue, NodeDefinition, NodeExport } from './types.js';
 
 type LinkTarget =
   | LinkDefinition
   | { node: unknown }
   | { texture: Texture }
   | { accessor: BufferAttribute }
+  | LinkTarget[]
+  | { [key: string]: LinkTarget }
   | unknown;
 
 export type THREEMaterialsTSLExporterPluginOptions = {
@@ -147,9 +149,9 @@ export class THREEMaterialsTSLExporterPlugin {
       if (exportData.args !== undefined) nodeDef.args = exportData.args;
 
       if (exportData.links) {
-        const linksOut: Record<string, LinkDefinition> = {};
+        const linksOut: Record<string, LinkValue> = {};
         for (const [slotName, linkTarget] of Object.entries(exportData.links)) {
-          const linkDef = await this.resolveLinkTarget(linkTarget, serializeNode);
+          const linkDef = await this.resolveLinkTargetValue(linkTarget, serializeNode);
           if (linkDef) linksOut[slotName] = linkDef;
         }
         if (Object.keys(linksOut).length > 0) nodeDef.links = linksOut;
@@ -170,10 +172,10 @@ export class THREEMaterialsTSLExporterPlugin {
     };
   }
 
-  private async resolveLinkTarget(
+  private async resolveLinkTargetValue(
     target: LinkTarget,
     serializeNode: (node: unknown) => Promise<string>
-  ): Promise<LinkDefinition | null> {
+  ): Promise<LinkValue | null> {
     if (this.isLinkDefinition(target)) return target;
 
     if (this.isNodeLike(target)) {
@@ -181,6 +183,16 @@ export class THREEMaterialsTSLExporterPlugin {
     }
 
     if (target && typeof target === 'object') {
+      if (Array.isArray(target)) {
+        const resolved: LinkValue[] = [];
+        for (let i = 0; i < target.length; i += 1) {
+          if (!(i in target)) continue;
+          const entry = await this.resolveLinkTargetValue(target[i], serializeNode);
+          if (entry) resolved[i] = entry;
+        }
+        return resolved;
+      }
+
       const objectTarget = target as { node?: unknown; texture?: Texture; accessor?: BufferAttribute };
       if (objectTarget.node) {
         return { $ref: await serializeNode(objectTarget.node) };
@@ -197,6 +209,13 @@ export class THREEMaterialsTSLExporterPlugin {
         if (accessorIndex === undefined || accessorIndex === null) return null;
         return { $refAccessor: accessorIndex };
       }
+
+      const resolved: Record<string, LinkValue> = {};
+      for (const [key, value] of Object.entries(target as Record<string, LinkTarget>)) {
+        const entry = await this.resolveLinkTargetValue(value, serializeNode);
+        if (entry) resolved[key] = entry;
+      }
+      if (Object.keys(resolved).length > 0) return resolved;
     }
 
     return null;

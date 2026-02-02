@@ -24,6 +24,31 @@ const cleanArgs = (raw: Record<string, unknown>): Record<string, JsonValue> | un
   return Object.keys(args).length > 0 ? args : undefined;
 };
 
+const assignLink = (
+  links: Record<string, unknown>,
+  property: string,
+  index: number | string | undefined,
+  node: unknown
+) => {
+  const linkTarget = { node };
+  if (index === undefined) {
+    links[property] = linkTarget;
+    return;
+  }
+
+  let container = links[property];
+  if (!container) {
+    container = Number.isInteger(index) ? [] : {};
+    links[property] = container;
+  }
+
+  if (Array.isArray(container)) {
+    (container as unknown[])[index as number] = linkTarget;
+  } else {
+    (container as Record<string, unknown>)[String(index)] = linkTarget;
+  }
+};
+
 export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOptions = {}) => {
   const overrides = options.overrides ?? {};
 
@@ -92,14 +117,13 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
         method: serializeData.method,
         op: serializeData.op
       });
-      const links: Record<string, { node: unknown }> = {};
+      const links: Record<string, unknown> = {};
       const children = (node as {
         getSerializeChildren?: () => Iterable<{ property: string; index?: number; childNode: unknown }>;
       }).getSerializeChildren?.();
       if (children) {
         for (const child of children) {
-          if (child.index !== undefined) continue;
-          links[child.property] = { node: child.childNode };
+          assignLink(links, child.property, child.index, child.childNode);
         }
       }
       return { op: nodeType, args, links: Object.keys(links).length > 0 ? links : undefined };
@@ -118,13 +142,13 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
       )
     );
 
-    const links: Record<string, { node: unknown }> = {};
-    const children = (node as { getSerializeChildren?: () => Iterable<{ property: string; index?: number; childNode: unknown }> })
-      .getSerializeChildren?.();
+    const links: Record<string, unknown> = {};
+    const children = (
+      node as { getSerializeChildren?: () => Iterable<{ property: string; index?: number; childNode: unknown }> }
+    ).getSerializeChildren?.();
     if (children) {
       for (const child of children) {
-        if (child.index !== undefined) continue;
-        links[child.property] = { node: child.childNode };
+        assignLink(links, child.property, child.index, child.childNode);
       }
     }
 

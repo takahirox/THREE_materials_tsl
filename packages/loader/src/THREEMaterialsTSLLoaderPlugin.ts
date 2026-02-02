@@ -13,21 +13,18 @@ export type JsonValue =
 
 export type NodeResolver = (op: string, args?: JsonValue) => unknown;
 
-type NodeRegistryLike = {
-  get?: (op: string) => unknown;
-  [key: string]: unknown;
-};
-
 type LinkDefinition = {
   $ref?: string;
   $refTex?: number;
   $refAccessor?: number;
 };
 
+type LinkValue = LinkDefinition | LinkValue[] | { [key: string]: LinkValue } | null;
+
 type NodeDefinition = {
   op: string;
   args?: JsonValue;
-  links?: Record<string, LinkDefinition>;
+  links?: Record<string, LinkValue>;
 };
 
 type ThreeMetadata = {
@@ -52,8 +49,7 @@ type GltfMaterialDef = {
 };
 
 export type THREEMaterialsTSLLoaderPluginOptions = {
-  nodeResolver?: NodeResolver;
-  nodeRegistry?: NodeRegistryLike;
+  nodeResolver: NodeResolver;
   supportedVersions?: string[];
   materialType?: typeof NodeMaterial;
   onError?: (error: unknown) => void;
@@ -205,14 +201,10 @@ export class THREEMaterialsTSLLoaderPlugin {
   }
 
   private resolveNodeFactory(op: string, args?: JsonValue): unknown {
-    if (this.options.nodeResolver) {
-      return this.options.nodeResolver(op, args);
+    if (!this.options.nodeResolver) {
+      throw new Error('nodeResolver is required. Pass createDefaultNodeResolver() or a custom resolver.');
     }
-
-    const registry = this.options.nodeRegistry;
-    if (!registry) return null;
-    if (typeof registry.get === 'function') return registry.get(op);
-    return registry[op];
+    return this.options.nodeResolver(op, args);
   }
 
   private async applyExtension(material: NodeMaterial, extension: ExtensionDefinition) {
@@ -301,39 +293,68 @@ export class THREEMaterialsTSLLoaderPlugin {
 
   private async applyLinks(
     node: unknown,
-    links: Record<string, LinkDefinition>,
+    links: Record<string, LinkValue>,
     resolveNode: (nodeId: string) => Promise<unknown>
   ) {
     const linkEntries = Object.entries(links);
 
     for (const [slotName, linkDef] of linkEntries) {
-      const value = await this.resolveLink(linkDef, resolveNode);
+      const value = await this.resolveLinkValue(linkDef, resolveNode);
       (node as Record<string, unknown>)[slotName] = value;
     }
   }
 
-  private async resolveLink(
-    linkDef: LinkDefinition,
+  private isLinkDefinition(value: unknown): value is LinkDefinition {
+    if (!value || typeof value !== 'object') return false;
+    const link = value as LinkDefinition;
+    return link.$ref !== undefined || link.$refTex !== undefined || link.$refAccessor !== undefined;
+  }
+
+  private async resolveLinkValue(
+    linkDef: LinkValue,
     resolveNode: (nodeId: string) => Promise<unknown>
   ): Promise<unknown> {
-    if (linkDef.$ref !== undefined) {
-      return resolveNode(linkDef.$ref);
+    if (linkDef === null) return null;
+
+    if (Array.isArray(linkDef)) {
+      const resolved: unknown[] = [];
+      for (let i = 0; i < linkDef.length; i += 1) {
+        if (!(i in linkDef)) continue;
+        resolved[i] = await this.resolveLinkValue(linkDef[i], resolveNode);
+      }
+      return resolved;
     }
 
-    if (linkDef.$refTex !== undefined) {
-      const textures = this.parser.json.textures ?? [];
-      if (linkDef.$refTex < 0 || linkDef.$refTex >= textures.length) {
-        throw new Error(`Texture index out of range: ${linkDef.$refTex}`);
+    if (this.isLinkDefinition(linkDef)) {
+      if (linkDef.$ref !== undefined) {
+        return resolveNode(linkDef.$ref);
       }
-      return this.parser.getDependency('texture', linkDef.$refTex);
+
+      if (linkDef.$refTex !== undefined) {
+        const textures = this.parser.json.textures ?? [];
+        if (linkDef.$refTex < 0 || linkDef.$refTex >= textures.length) {
+          throw new Error(`Texture index out of range: ${linkDef.$refTex}`);
+        }
+        return this.parser.getDependency('texture', linkDef.$refTex);
+      }
+
+      if (linkDef.$refAccessor !== undefined) {
+        const accessors = this.parser.json.accessors ?? [];
+        if (linkDef.$refAccessor < 0 || linkDef.$refAccessor >= accessors.length) {
+          throw new Error(`Accessor index out of range: ${linkDef.$refAccessor}`);
+        }
+        return this.parser.getDependency('accessor', linkDef.$refAccessor);
+      }
+
+      return null;
     }
 
-    if (linkDef.$refAccessor !== undefined) {
-      const accessors = this.parser.json.accessors ?? [];
-      if (linkDef.$refAccessor < 0 || linkDef.$refAccessor >= accessors.length) {
-        throw new Error(`Accessor index out of range: ${linkDef.$refAccessor}`);
+    if (linkDef && typeof linkDef === 'object') {
+      const resolved: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(linkDef as Record<string, LinkValue>)) {
+        resolved[key] = await this.resolveLinkValue(value, resolveNode);
       }
-      return this.parser.getDependency('accessor', linkDef.$refAccessor);
+      return resolved;
     }
 
     return null;

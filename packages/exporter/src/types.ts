@@ -12,10 +12,12 @@ export type LinkDefinition = {
   $refAccessor?: number;
 };
 
+export type LinkValue = LinkDefinition | LinkValue[] | { [key: string]: LinkValue };
+
 export type NodeDefinition = {
   op: string;
   args?: JsonValue;
-  links?: Record<string, LinkDefinition>;
+  links?: Record<string, LinkValue>;
 };
 
 export type NodeExport = {

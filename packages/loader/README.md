@@ -23,7 +23,7 @@ loader.register(
 );
 ```
 
-`createDefaultNodeResolver()` uses the Three.js TSL exports to resolve common node ops.
+`nodeResolver` is required. `createDefaultNodeResolver()` uses the Three.js TSL exports to resolve common node ops.
 You can override or extend it for custom nodes:
 
 ```ts
