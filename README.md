@@ -200,15 +200,48 @@ links describes how node inputs are wired.
 
 ### Link Value Forms
 
+links values MAY be nested structures to support array/object node inputs.
+
+Allowed link value forms:
+
 * Node reference: `{ "$ref": "nodeId" }`
 * Texture reference: `{ "$refTex": n }`
 * Accessor reference: `{ "$refAccessor": n }`
+* Array of link values: `[ linkValue, ... ]`
+* Object of link values: `{ "key": linkValue, ... }`
 
 Texture references point to `glTF.textures[n]`.
 Accessor references point to `glTF.accessors[n]`.
 
 The consumer is expected to resolve these references to runtime objects
 such as `THREE.Texture` or `BufferAttribute`.
+
+Example with array/object links:
+
+```json
+{
+  "nodes": {
+    "n0": {
+      "op": "OutputStructNode",
+      "links": {
+        "members": [
+          { "$ref": "n1" },
+          { "$ref": "n2" }
+        ],
+        "params": {
+          "tint": { "$ref": "n3" }
+        }
+      }
+    },
+    "n1": { "op": "ConstNode", "args": { "value": 0.25, "valueType": "float" } },
+    "n2": { "op": "ConstNode", "args": { "value": 0.75, "valueType": "float" } },
+    "n3": { "op": "ConstNode", "args": { "value": [1, 0, 0], "valueType": "color" } }
+  },
+  "entrypoints": {
+    "colorNode": "n0"
+  }
+}
+```
 
 ## Compatibility Hints (compat)
 
