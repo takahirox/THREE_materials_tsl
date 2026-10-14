@@ -6,6 +6,7 @@ import {
 import { ConstNode, MeshBasicNodeMaterial, MeshStandardNodeMaterial, MeshPhysicalNodeMaterial } from 'three/webgpu';
 import { materialColor, time } from 'three/tsl';
 import UniformNode from 'three/src/nodes/core/UniformNode.js';
+import NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
 import OperatorNode from 'three/src/nodes/math/OperatorNode.js';
 import MathNode from 'three/src/nodes/math/MathNode.js';
 import AttributeNode from 'three/src/nodes/core/AttributeNode.js';
@@ -297,6 +298,45 @@ it('reconstructs serialized literal values with Three.js semantics', async () =>
       expect(actual?.toArray ? actual.toArray() : actual).toEqual(value?.toArray ? value.toArray() : value);
     }
   }
+});
+
+describe.each(['ConstNode', 'UniformNode'])('%s without nodeType', (op) => {
+  it.each([
+    ['float', 0.4], ['bool', true], ['color', [1, 0, 0]],
+    ['vec2', [1, 2]], ['vec3', [1, 2, 3]], ['vec4', [1, 2, 3, 4]],
+    ['mat2', [1, 0, 0, 1]], ['mat3', new Matrix3().toArray()], ['mat4', new Matrix4().toArray()]
+  ])('loads and generates an inferred %s literal', async (valueType, value) => {
+    const json = await exportScene(sceneWith(new MeshStandardMaterial()));
+    json.materials[0].extensions ??= {};
+    json.materials[0].extensions[extensionName] = {
+      version: '2.0', materialType: 'MeshStandardNodeMaterial',
+      entrypoints: { colorNode: 'literal' },
+      nodes: { literal: { op, args: { value, valueType, precision: 'high' } } }
+    };
+    json.extensionsUsed ??= [];
+    json.extensionsUsed.push(extensionName);
+    const errors = [];
+    const result = await load(json, { onError: (error) => errors.push(error) });
+    const material = meshes(result.scene)[0].material;
+    expect(errors).toEqual([]);
+    expect(material.type).toBe('MeshStandardNodeMaterial');
+    const node = material.colorNode;
+    expect(node.type).toBe(op);
+    expect(node.value?.toArray ? node.value.toArray() : node.value?.elements ?? node.value).toEqual(value);
+    expect(node.precision).toBe('high');
+    const builder = new NodeBuilder(null, null, null);
+    builder.setShaderStage('fragment');
+    expect(node.getNodeType(builder)).toBe(valueType);
+    const snippet = node.generate(builder, valueType);
+    if (op === 'ConstNode') {
+      expect(snippet).toBe(builder.generateConst(valueType, node.value));
+    } else {
+      expect(snippet).toMatch(/^node(?:Uniform|Var)\d+$/);
+      // Three.js stores boolean uniforms as uint and casts them on access.
+      expect(builder.uniforms.fragment[0].type).toBe(valueType === 'bool' ? 'uint' : valueType);
+      expect(builder.uniforms.fragment[0].value).toBe(node.value);
+    }
+  });
 });
 
 it.each([['!', true, 'bool'], ['~', 5, 'int']])('round-trips unary OperatorNode %s without a second input', async (op, value, nodeType) => {

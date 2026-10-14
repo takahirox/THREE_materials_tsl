@@ -34,7 +34,8 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
       if (!valid) return null;
       const node = op === 'ConstNode' ? new ConstNode(0) : new UniformNode(0);
       // Three.js owns the value and precision serialization semantics.
-      node.deserialize(args as never);
+      // InputNode infers its type only from null, not undefined.
+      node.deserialize({ ...args, nodeType: args.nodeType ?? null } as never);
       return node;
     }
     if (op === 'AttributeNode') {
