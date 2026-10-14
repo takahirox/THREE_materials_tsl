@@ -36,7 +36,7 @@ option changes the encoding or triggers migration.
 
 ## Supported scope
 
-Tested with Three.js **r182**: `MeshBasicNodeMaterial`,
+Tested with Three.js **r186** (`three@0.186.1`, `@types/three@0.186.0`): `MeshBasicNodeMaterial`,
 `MeshStandardNodeMaterial`, `MeshPhysicalNodeMaterial`, and custom subclasses
 retaining these ordinary material families. GLTFExporter uses their ordinary
 material flags to export core color/metalness/roughness/emissive/alpha/texture
@@ -53,7 +53,9 @@ It reuses Three.js serialization and child discovery with explicit input
 handling. It preserves shared graph inputs. Unsupported classes or literal
 value types require adapters; arbitrary functions, closures, shader code,
 texture/buffer node classes and renderer resources are not automatically
-serializable. Support across Three.js revisions is not guaranteed.
+serializable. The existing peer dependency range `three >=0.182.0` is retained;
+this validation does not establish compatibility with every release in that
+range. Support across Three.js revisions is not guaranteed.
 
 Provide paired serializer/resolver overrides for custom nodes:
 

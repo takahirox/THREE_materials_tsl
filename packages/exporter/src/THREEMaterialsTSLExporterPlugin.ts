@@ -40,7 +40,7 @@ export class THREEMaterialsTSLExporterPlugin {
 
   afterParse() {
     // References may point to resources emitted by later meshes or animations.
-    // GLTFWriter exposes json at runtime; r182's declarations omit it.
+    // GLTFWriter exposes json at runtime; @types/three's declarations omit it.
     const { json } = this.writer as GLTFWriter & {
       json: { textures?: unknown[]; accessors?: unknown[] };
     };
