@@ -65,6 +65,11 @@ compatible Three.js runtime.
 
 ## Design Rationale
 
+The design is **Three.js-first, with minimal implementation**: reuse the existing
+Three.js node model and serialization facilities wherever practical. Keep the
+extension and its supporting implementations focused on transporting node data
+and resolving references, rather than reimplementing Three.js node semantics.
+
 The extension defines a declarative, data-only container for node identifiers,
 literal arguments, links, and material entrypoints. A compatible Three.js consumer
 resolves `op` identifiers and interprets node-specific arguments and semantics
@@ -75,10 +80,19 @@ Leaving operation semantics implementation-defined allows the extension to follo
 evolving Three.js / TSL APIs and support consumer-provided custom nodes without
 revising the glTF extension for every node or shader semantic. The specification
 therefore does not standardize an operation catalog or constructor signatures.
+Reusing Three.js behavior reduces duplication, keeps the specification and
+loader/exporter implementation surface small, and eases maintenance as Three.js evolves.
+
+The [reference serializer](packages/exporter/src/defaultNodeSerializer.ts)
+illustrates this reuse with node serialization via `serialize()` and child discovery
+via `getSerializeChildren()` where suitable. These are implementation examples,
+not APIs required by this specification.
 
 Interpretation depends on the consumer and its Three.js environment. Full
 portability across Three.js versions, configurations, or other engines is not
-guaranteed.
+guaranteed. Version differences, unsupported nodes, and node-specific serialization
+details may still require explicit adapters. Minimal implementation is a design
+goal, not a guarantee of zero conversion code or cross-version interoperability.
 
 ## Non-Goals
 
@@ -218,11 +232,19 @@ Using shared instance names preserves runtime semantics for built-in nodes.
 * args MUST contain only JSON literal values
 * Executable code or expressions are not representable
 
-Interpretation of arguments is implementation-defined.
+args carries JSON-compatible node-specific data. Its interpretation remains
+implementation-defined and is delegated to the consumer and Three.js; this extension
+does not standardize a per-node argument schema or duplicate the node's
+serialization semantics.
 
 ## Links (links)
 
 links describes how node inputs are wired.
+
+Links reflect the node's existing property and child relationships, including
+array/object structures. The extension defines how references to nodes, textures,
+and accessors are encoded; the consumer resolves them according to the node model.
+The extension does not redefine each node's input semantics.
 
 ### Link Value Forms
 
