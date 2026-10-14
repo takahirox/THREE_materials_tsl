@@ -2,7 +2,7 @@ import { REVISION } from 'three';
 
 import type { BufferAttribute, Material, Texture } from 'three';
 import type { GLTFWriter } from 'three/examples/jsm/exporters/GLTFExporter.js';
-import type { JsonValue, LinkDefinition, LinkValue, NodeDefinition, NodeExport } from './types.js';
+import type { LinkDefinition, LinkValue, NodeDefinition, NodeExport } from './types.js';
 
 type LinkTarget =
   | LinkDefinition
@@ -16,46 +16,61 @@ type LinkTarget =
 export type THREEMaterialsTSLExporterPluginOptions = {
   nodeSerializer: (node: unknown) => NodeExport | null;
   entrypoints?: string[];
-  version?: string;
   includeThreeRevision?: boolean;
   threeRevision?: string;
 };
 
 type NodeMaterialLike = Material & {
   isNodeMaterial?: boolean;
-  isMeshStandardNodeMaterial?: boolean;
-  metalness?: number;
-  roughness?: number;
-  emissiveIntensity?: number;
+  isMeshStandardMaterial?: boolean;
+  isMeshBasicMaterial?: boolean;
 };
 
 export class THREEMaterialsTSLExporterPlugin {
   public readonly name = 'THREE_materials_tsl';
-  private readonly emissiveStrengthExtension = 'KHR_materials_emissive_strength';
 
   private readonly writer: GLTFWriter;
   private readonly options: THREEMaterialsTSLExporterPluginOptions;
+  private readonly resourceReferences: { table: 'textures' | 'accessors'; index: number }[] = [];
 
   constructor(writer: GLTFWriter, options: THREEMaterialsTSLExporterPluginOptions) {
     this.writer = writer;
     this.options = options;
   }
 
+  afterParse() {
+    // References may point to resources emitted by later meshes or animations.
+    // GLTFWriter exposes json at runtime; r182's declarations omit it.
+    const { json } = this.writer as GLTFWriter & {
+      json: { textures?: unknown[]; accessors?: unknown[] };
+    };
+    for (const { table, index } of this.resourceReferences) {
+      if (!json[table]?.[index]) throw new Error(`Invalid resource reference: ${table}[${index}] was not exported`);
+    }
+  }
+
   async writeMaterialAsync(material: Material, materialDef: Record<string, unknown>) {
     if (!this.isNodeMaterial(material)) return;
 
-    this.writePBRParams(material, materialDef);
+    if (typeof material.type !== 'string' || !material.type.trim() || material.type === 'NodeMaterial') {
+      throw new Error('NodeMaterial must have a non-empty concrete material type');
+    }
+    // GLTFExporter handles ordinary PBR values and its material extensions using
+    // the standard/basic/physical flags exposed by these NodeMaterial families.
+    if (material.isMeshStandardMaterial !== true && material.isMeshBasicMaterial !== true) {
+      throw new Error(`Unsupported ordinary material fallback for "${material.type}"`);
+    }
 
     const entrypoints = this.collectEntrypoints(material);
     if (!entrypoints || Object.keys(entrypoints).length === 0) return;
 
-    if (!this.options.nodeSerializer) return;
+    if (typeof this.options.nodeSerializer !== 'function') throw new Error('nodeSerializer is required');
 
     const serialized = await this.serializeGraph(entrypoints);
-    if (!serialized) return;
 
     const extension = {
-      version: this.options.version ?? '1.0',
+      version: '2.0',
+      materialType: material.type,
       entrypoints: serialized.entrypoints,
       nodes: serialized.nodes
     } as Record<string, unknown>;
@@ -70,28 +85,6 @@ export class THREEMaterialsTSLExporterPlugin {
     this.writer.extensionsUsed[this.name] = true;
   }
 
-  private writePBRParams(material: NodeMaterialLike, materialDef: Record<string, unknown>) {
-    if (!this.isMeshStandardNodeMaterial(material)) return;
-
-    const pbr = (materialDef.pbrMetallicRoughness ?? {}) as Record<string, unknown>;
-    if (pbr.metallicFactor === undefined && typeof material.metalness === 'number') {
-      pbr.metallicFactor = material.metalness;
-    }
-    if (pbr.roughnessFactor === undefined && typeof material.roughness === 'number') {
-      pbr.roughnessFactor = material.roughness;
-    }
-    materialDef.pbrMetallicRoughness = pbr;
-
-    const emissiveIntensity = material.emissiveIntensity;
-    if (typeof emissiveIntensity === 'number' && emissiveIntensity !== 1) {
-      materialDef.extensions = materialDef.extensions || {};
-      (materialDef.extensions as Record<string, unknown>)[this.emissiveStrengthExtension] = {
-        emissiveStrength: emissiveIntensity
-      };
-      this.writer.extensionsUsed[this.emissiveStrengthExtension] = true;
-    }
-  }
-
   private collectEntrypoints(material: NodeMaterialLike): Record<string, unknown> | null {
     const entrypoints: Record<string, unknown> = {};
     const materialRecord = material as unknown as Record<string, unknown>;
@@ -101,7 +94,10 @@ export class THREEMaterialsTSLExporterPlugin {
       const value = materialRecord[name];
       if (!value) continue;
       if (!this.isNodeLike(value)) continue;
-      if (!this.options.entrypoints && !name.endsWith('Node')) continue;
+      if (!name.endsWith('Node') || ['__proto__', 'prototype', 'constructor'].includes(name)) {
+        if (this.options.entrypoints) throw new Error(`Unsupported entrypoint "${name}"`);
+        continue;
+      }
       entrypoints[name] = value;
     }
 
@@ -118,10 +114,6 @@ export class THREEMaterialsTSLExporterPlugin {
     );
   }
 
-  private isMeshStandardNodeMaterial(value: NodeMaterialLike): boolean {
-    return Boolean(value.isMeshStandardNodeMaterial === true);
-  }
-
   private isLinkDefinition(value: LinkTarget): value is LinkDefinition {
     if (!value || typeof value !== 'object') return false;
     const link = value as LinkDefinition;
@@ -132,32 +124,47 @@ export class THREEMaterialsTSLExporterPlugin {
     const nodes: Record<string, NodeDefinition> = {};
     const nodeIds = new Map<unknown, string>();
     let nextId = 0;
+    const visiting = new Set<unknown>();
 
     const serializeNode = async (node: unknown): Promise<string> => {
+      if (visiting.has(node)) throw new Error('Cannot export a cyclic node graph');
       const cached = nodeIds.get(node);
       if (cached) return cached;
 
       const nodeId = `n${nextId++}`;
       nodeIds.set(node, nodeId);
+      visiting.add(node);
 
       const exportData = this.options.nodeSerializer(node);
-      if (!exportData || !exportData.op) {
+      if (!exportData || typeof exportData.op !== 'string' || !exportData.op.trim()) {
         throw new Error('Node serializer returned no op');
       }
 
       const nodeDef: NodeDefinition = { op: exportData.op };
-      if (exportData.args !== undefined) nodeDef.args = exportData.args;
+      if (exportData.args !== undefined) {
+        // Reject executable/non-JSON arguments rather than allowing JSON.stringify
+        // to silently erase them. Circular values also fail serialization.
+        JSON.stringify(exportData.args, (_key, value) => {
+          if (typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint' ||
+              value === undefined || (typeof value === 'number' && !Number.isFinite(value))) {
+            throw new Error('Node arguments must be JSON literals');
+          }
+          return value;
+        });
+        nodeDef.args = exportData.args;
+      }
 
       if (exportData.links) {
         const linksOut: Record<string, LinkValue> = {};
         for (const [slotName, linkTarget] of Object.entries(exportData.links)) {
           const linkDef = await this.resolveLinkTargetValue(linkTarget, serializeNode);
-          if (linkDef) linksOut[slotName] = linkDef;
+          linksOut[slotName] = linkDef;
         }
         if (Object.keys(linksOut).length > 0) nodeDef.links = linksOut;
       }
 
       nodes[nodeId] = nodeDef;
+      visiting.delete(node);
       return nodeId;
     };
 
@@ -165,6 +172,40 @@ export class THREEMaterialsTSLExporterPlugin {
     for (const [slotName, node] of Object.entries(entrypoints)) {
       entrypointIds[slotName] = await serializeNode(node);
     }
+
+    // Also validate explicit reference definitions supplied by custom adapters.
+    // These bypass serializeNode(), so they need their own missing/cycle checks.
+    const checked = new Set<string>();
+    const checking = new Set<string>();
+    const checkNode = (id: string): void => {
+      if (checking.has(id)) throw new Error('Cannot export a cyclic node graph');
+      if (checked.has(id)) return;
+      if (!Object.prototype.hasOwnProperty.call(nodes, id)) throw new Error(`Missing node reference "${id}"`);
+      checking.add(id);
+      for (const value of Object.values(nodes[id].links ?? {})) checkLink(value);
+      checking.delete(id);
+      checked.add(id);
+    };
+    const checkLink = (value: LinkValue): void => {
+      if (Array.isArray(value)) { value.forEach(checkLink); return; }
+      const keys = Object.keys(value);
+      const refs = keys.filter((key) => ['$ref', '$refTex', '$refAccessor'].includes(key));
+      if (refs.length) {
+        if (refs.length !== 1 || keys.length !== 1) throw new Error('Invalid link reference');
+        const link = value as LinkDefinition;
+        if (refs[0] === '$ref') {
+          if (typeof link.$ref !== 'string') throw new Error('Invalid node reference');
+          checkNode(link.$ref);
+        } else {
+          const index = refs[0] === '$refTex' ? link.$refTex : link.$refAccessor;
+          if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) throw new Error('Invalid resource reference');
+          this.resourceReferences.push({ table: refs[0] === '$refTex' ? 'textures' : 'accessors', index });
+        }
+      } else {
+        Object.values(value).forEach(checkLink);
+      }
+    };
+    for (const id of Object.keys(nodes)) checkNode(id);
 
     return {
       entrypoints: entrypointIds,
@@ -175,7 +216,7 @@ export class THREEMaterialsTSLExporterPlugin {
   private async resolveLinkTargetValue(
     target: LinkTarget,
     serializeNode: (node: unknown) => Promise<string>
-  ): Promise<LinkValue | null> {
+  ): Promise<LinkValue> {
     if (this.isLinkDefinition(target)) return target;
 
     if (this.isNodeLike(target)) {
@@ -186,9 +227,9 @@ export class THREEMaterialsTSLExporterPlugin {
       if (Array.isArray(target)) {
         const resolved: LinkValue[] = [];
         for (let i = 0; i < target.length; i += 1) {
-          if (!(i in target)) continue;
+          if (!(i in target)) throw new Error('Sparse link arrays are unsupported');
           const entry = await this.resolveLinkTargetValue(target[i], serializeNode);
-          if (entry) resolved[i] = entry;
+          resolved[i] = entry;
         }
         return resolved;
       }
@@ -206,18 +247,18 @@ export class THREEMaterialsTSLExporterPlugin {
           processAccessor?: (accessor: BufferAttribute) => number | null;
         };
         const accessorIndex = accessorWriter.processAccessor?.(objectTarget.accessor);
-        if (accessorIndex === undefined || accessorIndex === null) return null;
+        if (accessorIndex === undefined || accessorIndex === null) throw new Error('Could not export accessor link');
         return { $refAccessor: accessorIndex };
       }
 
       const resolved: Record<string, LinkValue> = {};
       for (const [key, value] of Object.entries(target as Record<string, LinkTarget>)) {
         const entry = await this.resolveLinkTargetValue(value, serializeNode);
-        if (entry) resolved[key] = entry;
+        resolved[key] = entry;
       }
-      if (Object.keys(resolved).length > 0) return resolved;
+      return resolved;
     }
 
-    return null;
+    throw new Error('Unsupported link target');
   }
 }

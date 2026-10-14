@@ -87,6 +87,9 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
         meta: { nodes: {}, textures: {}, images: {} }
       };
       (node as { serialize?: (data: Record<string, unknown>) => void }).serialize?.(serializeData);
+      if (!['float', 'bool', 'color', 'vec2', 'vec3', 'vec4', 'mat2', 'mat3', 'mat4'].includes(serializeData.valueType as string)) {
+        throw new Error(`Unsupported ${nodeType} value type; supply explicit adapters`);
+      }
       const args = cleanArgs({
         value: serializeData.value,
         valueType: serializeData.valueType,
@@ -126,36 +129,16 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
           assignLink(links, child.property, child.index, child.childNode);
         }
       }
+      // getSerializeChildren() omits self references. Include direct node
+      // inputs too so the graph writer detects cycles instead of dropping them.
+      for (const [property, value] of Object.entries(node)) {
+        if (value && typeof value === 'object' && (value as { isNode?: boolean }).isNode) {
+          links[property] = { node: value };
+        }
+      }
       return { op: nodeType, args, links: Object.keys(links).length > 0 ? links : undefined };
     }
 
-    const serializeData: Record<string, unknown> = {
-      meta: { nodes: {}, textures: {}, images: {} }
-    };
-    if (typeof (node as { serialize?: (data: Record<string, unknown>) => void }).serialize === 'function') {
-      (node as { serialize: (data: Record<string, unknown>) => void }).serialize(serializeData);
-    }
-
-    const args = cleanArgs(
-      Object.fromEntries(
-        Object.entries(serializeData).filter(([key]) => key !== 'meta' && key !== 'inputNodes')
-      )
-    );
-
-    const links: Record<string, unknown> = {};
-    const children = (
-      node as { getSerializeChildren?: () => Iterable<{ property: string; index?: number; childNode: unknown }> }
-    ).getSerializeChildren?.();
-    if (children) {
-      for (const child of children) {
-        assignLink(links, child.property, child.index, child.childNode);
-      }
-    }
-
-    return {
-      op: nodeType,
-      args,
-      links: Object.keys(links).length > 0 ? links : undefined
-    };
+    throw new Error(`Unsupported node type "${nodeType}"; supply a serializer and resolver override`);
   };
 };

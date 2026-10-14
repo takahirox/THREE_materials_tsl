@@ -144,8 +144,6 @@ function createLoader() {
   loader.register(
     (parser: GLTFParser) =>
       new THREEMaterialsTSLLoaderPlugin(parser, {
-        materialType: MeshStandardNodeMaterial,
-        supportedVersions: ['1.0'],
         onError: (error: unknown) => {
           exportView.textContent += `\n\nLoader error: ${error}`;
         },
@@ -188,8 +186,6 @@ async function roundTrip() {
   const gltf = await new Promise<GLTF>((resolve, reject) => {
     loader.parse(json, '', resolve, reject);
   });
-
-  await syncImportedMaterials(gltf);
 
   if (exportedGroup) {
     rig.remove(exportedGroup);
@@ -294,32 +290,6 @@ function bindInputs() {
       .finally(() => {
         applyButton.disabled = false;
       });
-  });
-}
-
-async function syncImportedMaterials(gltf: GLTF) {
-  const parser = gltf.parser as GLTFParser;
-  const associations = parser.associations;
-  if (!parser.getDependencies || !associations) return;
-  const materials = await parser.getDependencies('material');
-
-  gltf.scene.traverse((object) => {
-    const mesh = object as Mesh;
-    if (!mesh.isMesh) return;
-
-    const meshMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-    for (const meshMaterial of meshMaterials) {
-      const association = associations.get(meshMaterial);
-      const materialIndex = association?.materials;
-      if (materialIndex === undefined) continue;
-      const source = materials[materialIndex] as MeshStandardNodeMaterial | undefined;
-      if (!source || source === meshMaterial) continue;
-
-      if (source.emissiveNode && !(meshMaterial as MeshStandardNodeMaterial).emissiveNode) {
-        (meshMaterial as MeshStandardNodeMaterial).emissiveNode = source.emissiveNode;
-        (meshMaterial as MeshStandardNodeMaterial).needsUpdate = true;
-      }
-    }
   });
 }
 
