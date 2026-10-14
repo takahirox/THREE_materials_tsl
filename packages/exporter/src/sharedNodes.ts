@@ -1,4 +1,4 @@
-import * as TSL from 'three/src/nodes/TSL.js';
+import * as TSL from 'three/tsl';
 
 const sharedNodeNames = new Map<unknown, string>();
 

@@ -1,5 +1,4 @@
-import * as TSL from 'three/src/nodes/TSL.js';
-import { Color, Vector2, Vector3 } from 'three';
+import * as TSL from 'three/tsl';
 import { ConstNode } from 'three/webgpu';
 import AttributeNode from 'three/src/nodes/core/AttributeNode.js';
 import UniformNode from 'three/src/nodes/core/UniformNode.js';
@@ -14,63 +13,29 @@ type ResolverOptions = {
   overrides?: Record<string, unknown>;
 };
 
-const buildRegistry = () => {
-  const registry: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(TSL)) {
-    registry[key] = value;
-  }
-  registry.ConstNode = ConstNode;
-  registry.AttributeNode = AttributeNode;
-  registry.UniformNode = UniformNode;
-  registry.MathNode = MathNode;
-  registry.OperatorNode = OperatorNode;
-  return registry;
-};
-
-const registry = buildRegistry();
+// Only shared node objects and explicitly adapted classes are supported. TSL
+// functions do not in general accept serialized object arguments.
+const registry = Object.fromEntries(Object.entries(TSL).filter(([, value]) =>
+  value && typeof value === 'object' && (value as { isNode?: boolean }).isNode === true
+));
 
 export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeResolver => {
   const overrides = options.overrides ?? {};
   return (op: string, _args?: JsonValue) => {
-    if (op in overrides) return overrides[op];
-    if (op === 'TimeNode') {
-      return (TSL as { time?: unknown }).time ?? null;
-    }
-    if (op === 'ConstNode') {
-      const args = _args as { value?: unknown; valueType?: string; nodeType?: string } | undefined;
+    if (Object.prototype.hasOwnProperty.call(overrides, op)) return overrides[op];
+    if (op === 'ConstNode' || op === 'UniformNode') {
+      const args = _args as Record<string, unknown> | undefined;
       if (!args) return null;
-      if (args.valueType === 'color' && Array.isArray(args.value)) {
-        const [r, g, b] = args.value as number[];
-        return new ConstNode(new Color(r, g, b), args.nodeType ?? 'color');
-      }
-      if (args.valueType === 'vec2' && Array.isArray(args.value)) {
-        const [x, y] = args.value as number[];
-        return new ConstNode(new Vector2(x, y), args.nodeType ?? 'vec2');
-      }
-      if (args.valueType === 'vec3' && Array.isArray(args.value)) {
-        const [x, y, z] = args.value as number[];
-        return new ConstNode(new Vector3(x, y, z), args.nodeType ?? 'vec3');
-      }
-      if (args.valueType === 'float') {
-        return new ConstNode(args.value as number, args.nodeType ?? 'float');
-      }
-    }
-    if (op === 'UniformNode') {
-      const args = _args as { value?: unknown; valueType?: string; nodeType?: string } | undefined;
-      if (!args) return null;
-      if (args.valueType === 'color' && Array.isArray(args.value)) {
-        const [r, g, b] = args.value as number[];
-        return new UniformNode(new Color(r, g, b), args.nodeType ?? 'color');
-      }
-      if (args.valueType === 'vec2' && Array.isArray(args.value)) {
-        const [x, y] = args.value as number[];
-        return new UniformNode(new Vector2(x, y), args.nodeType ?? 'vec2');
-      }
-      if (args.valueType === 'vec3' && Array.isArray(args.value)) {
-        const [x, y, z] = args.value as number[];
-        return new UniformNode(new Vector3(x, y, z), args.nodeType ?? 'vec3');
-      }
-      return new UniformNode(args.value, args.nodeType ?? null);
+      const sizes: Record<string, number> = { color: 3, vec2: 2, vec3: 3, vec4: 4, mat2: 4, mat3: 9, mat4: 16 };
+      const size = sizes[args.valueType as string];
+      const valid = size ? Array.isArray(args.value) && args.value.length === size && args.value.every((v) => typeof v === 'number' && Number.isFinite(v)) :
+        args.valueType === 'float' ? typeof args.value === 'number' && Number.isFinite(args.value) :
+        args.valueType === 'bool' && typeof args.value === 'boolean';
+      if (!valid) return null;
+      const node = op === 'ConstNode' ? new ConstNode(0) : new UniformNode(0);
+      // Three.js owns the value and precision serialization semantics.
+      node.deserialize(args as never);
+      return node;
     }
     if (op === 'AttributeNode') {
       const args = _args as { attributeName?: string; nodeType?: string | null } | undefined;
@@ -79,16 +44,16 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
     if (op === 'MathNode') {
       const args = _args as { method?: MathNodeMethod } | undefined;
       const placeholder = new ConstNode(0, 'float');
-      if (!args?.method) return new MathNode(MathNode.SIN, placeholder);
+      if (!args?.method || !Object.values(MathNode).includes(args.method)) return null;
       const MathNodeCtor = MathNode as unknown as new (method: MathNodeMethod, a: ConstNode<number>) => MathNode;
       return new MathNodeCtor(args.method, placeholder);
     }
     if (op === 'OperatorNode') {
       const args = _args as { op?: OperatorNodeOp } | undefined;
       const placeholder = new ConstNode(0, 'float');
-      if (!args?.op) return new OperatorNode('*', placeholder, placeholder);
+      if (!args?.op || !['+', '-', '*', '/', '%', '==', '!=', '<', '>', '<=', '>=', '&&', '||', '^^', '&', '|', '^', '<<', '>>'].includes(args.op)) return null;
       return new OperatorNode(args.op, placeholder, placeholder);
     }
-    return registry[op] ?? null;
+    return Object.prototype.hasOwnProperty.call(registry, op) ? registry[op] : null;
   };
 };

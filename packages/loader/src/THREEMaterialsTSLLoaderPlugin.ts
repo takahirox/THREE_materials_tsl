@@ -1,362 +1,227 @@
-import { Color, LinearSRGBColorSpace } from 'three';
-import { NodeMaterial } from 'three/webgpu';
+import * as TSL from 'three/tsl';
+import { Material, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial } from 'three';
+import { MeshBasicNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
+import type { GLTF, GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-import type { GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js';
-
-export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 export type NodeResolver = (op: string, args?: JsonValue) => unknown;
-
-type LinkDefinition = {
-  $ref?: string;
-  $refTex?: number;
-  $refAccessor?: number;
-};
-
-type LinkValue = LinkDefinition | LinkValue[] | { [key: string]: LinkValue } | null;
-
-type NodeDefinition = {
-  op: string;
-  args?: JsonValue;
-  links?: Record<string, LinkValue>;
-};
-
-type ThreeMetadata = {
-  revision?: string;
-};
-
-type ExtensionDefinition = {
-  version: string;
+export type MaterialTypes = Record<string, new () => NodeMaterial>;
+export type ExtensionDefinition = {
+  version: '2.0';
+  materialType: string;
   entrypoints: Record<string, string>;
-  nodes: Record<string, NodeDefinition>;
-  three?: ThreeMetadata;
+  nodes: Record<string, { op: string; args?: JsonValue; links?: Record<string, unknown> }>;
+  three?: { revision?: string };
   compat?: Record<string, JsonValue>;
 };
-
-type GltfMaterialDef = {
-  extensions?: Record<string, unknown>;
-  pbrMetallicRoughness?: {
-    roughnessFactor?: number;
-    metallicFactor?: number;
-  };
-  emissiveFactor?: number[];
-};
-
 export type THREEMaterialsTSLLoaderPluginOptions = {
   nodeResolver: NodeResolver;
-  supportedVersions?: string[];
-  materialType?: typeof NodeMaterial;
+  materialTypes?: MaterialTypes;
   onError?: (error: unknown) => void;
   onApplied?: (material: NodeMaterial, extension: ExtensionDefinition) => void;
 };
 
+const builtInTypes: MaterialTypes = { MeshBasicNodeMaterial, MeshStandardNodeMaterial, MeshPhysicalNodeMaterial };
+const sharedNodes = new Set<unknown>(Object.values(TSL).filter((value) => value && typeof value === 'object' && 'isNode' in value));
+const hasOwn = (object: object, key: PropertyKey) => Object.prototype.hasOwnProperty.call(object, key);
+const record = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+const safeKey = (key: string) => !['__proto__', 'prototype', 'constructor'].includes(key);
+const isNode = (value: unknown): value is { isNode: true } => record(value) && value.isNode === true;
+
 export class THREEMaterialsTSLLoaderPlugin {
   public readonly name = 'THREE_materials_tsl';
 
-  private readonly parser: GLTFParser;
-  private readonly options: THREEMaterialsTSLLoaderPluginOptions;
-  private readonly materialExtensions = new Map<number, ExtensionDefinition>();
-  private readonly supportedVersions: string[];
+  constructor(private readonly parser: GLTFParser, private readonly options: THREEMaterialsTSLLoaderPluginOptions) {}
 
-  constructor(parser: GLTFParser, options: THREEMaterialsTSLLoaderPluginOptions = {}) {
-    this.parser = parser;
-    this.options = options;
-    this.supportedVersions = options.supportedVersions ?? ['1.0'];
-  }
-
-  getMaterialType(materialIndex: number) {
-    const ext = this.getMaterialExtension(materialIndex);
-    if (!ext) return null;
-    if (!this.isVersionSupported(ext.version)) return null;
-    return this.options.materialType ?? NodeMaterial;
-  }
-
-  extendMaterialParams(materialIndex: number) {
-    const ext = this.getMaterialExtension(materialIndex);
-    if (!ext) return;
-    this.materialExtensions.set(materialIndex, ext);
-  }
-
-  async afterRoot(result?: unknown) {
-    if (this.materialExtensions.size === 0) return;
-
-    const materials = await this.parser.getDependencies('material');
-    const applied = new Set<unknown>();
-
-    const applyExtensionToMaterial = async (
-      material: unknown,
-      extension: ExtensionDefinition,
-      materialIndex: number
-    ) => {
-      if (applied.has(material)) return;
-      if (!this.isVersionSupported(extension.version)) return;
-      if (!this.isNodeMaterial(material)) return;
-      this.applyPBRParams(materialIndex, material as NodeMaterial);
-      await this.applyExtension(material, extension);
-      applied.add(material);
-    };
-
-    const materialPromises = Array.from(this.materialExtensions.entries()).map(
-      async ([materialIndex, extension]) => {
-        const material = materials[materialIndex];
-        if (!material) return;
-        await applyExtensionToMaterial(material, extension, materialIndex);
-      }
-    );
-
-    await Promise.all(materialPromises);
-
-    const associations = (this.parser as { associations?: Map<unknown, { materials?: number }> }).associations;
-    if (!associations) return;
-
-    const scenes: unknown[] = [];
-    if (result && typeof result === 'object') {
-      const root = result as { scenes?: unknown[]; scene?: unknown };
-      if (Array.isArray(root.scenes)) {
-        scenes.push(...root.scenes);
-      } else if (root.scene) {
-        scenes.push(root.scene);
-      }
-    }
-
-    const extraPromises: Promise<void>[] = [];
-    for (const scene of scenes) {
-      if (!scene || typeof scene !== 'object' || !('traverse' in scene)) continue;
-      (scene as { traverse: (cb: (obj: unknown) => void) => void }).traverse((object) => {
-        const material = (object as { material?: unknown }).material;
-        if (!material) return;
-
-        const applyForMaterial = (mat: unknown) => {
-          const association = associations.get(mat);
-          const materialIndex = association?.materials;
-          if (materialIndex === undefined) return;
-          const extension = this.materialExtensions.get(materialIndex);
-          if (!extension) return;
-          extraPromises.push(applyExtensionToMaterial(mat, extension, materialIndex));
-        };
-
-        if (Array.isArray(material)) {
-          material.forEach(applyForMaterial);
-        } else {
-          applyForMaterial(material);
+  // Let GLTFLoader and all its other extensions finish ordinary materials and
+  // primitive-specific clones first. Prepare replacements privately, then publish
+  // all replacements for a material only after its entire graph succeeds.
+  async afterRoot(result: GLTF) {
+    if (!this.parser.json.materials?.some((material: { extensions?: Record<string, unknown> }) =>
+      material.extensions && hasOwn(material.extensions, this.name))) return;
+    const originals: Material[] = await this.parser.getDependencies('material');
+    const replacements = new Map<Material, NodeMaterial>();
+    const groups = new Map<number, Set<Material>>();
+    originals.forEach((material, index) => groups.set(index, new Set([material])));
+    for (const scene of result.scenes) {
+      scene.traverse((object) => {
+        const material = (object as unknown as { material?: Material | Material[] }).material;
+        for (const item of Array.isArray(material) ? material : material ? [material] : []) {
+          const index = this.parser.associations.get(item)?.materials;
+          if (index !== undefined) groups.get(index)?.add(item);
         }
       });
     }
 
-    if (extraPromises.length > 0) {
-      await Promise.all(extraPromises);
-    }
-  }
-
-  private getMaterialExtension(materialIndex: number): ExtensionDefinition | null {
-    const materialDef = this.parser.json.materials?.[materialIndex] as GltfMaterialDef | undefined;
-    if (!materialDef?.extensions) return null;
-    const ext = materialDef.extensions[this.name] as ExtensionDefinition | undefined;
-    if (!ext) return null;
-    return ext;
-  }
-
-  private isVersionSupported(version: string): boolean {
-    return this.supportedVersions.includes(version);
-  }
-
-  private isNodeMaterial(value: unknown): value is NodeMaterial {
-    return Boolean(
-      value && typeof value === 'object' && (value as { isNodeMaterial?: boolean }).isNodeMaterial === true
-    );
-  }
-
-  private applyPBRParams(materialIndex: number, material: NodeMaterial) {
-    const materialDef = this.parser.json.materials?.[materialIndex] as GltfMaterialDef | undefined;
-    if (!materialDef) return;
-
-    const pbr = materialDef.pbrMetallicRoughness;
-    if (pbr) {
-      const roughness = (pbr.roughnessFactor as number | undefined) ?? undefined;
-      const metalness = (pbr.metallicFactor as number | undefined) ?? undefined;
-      if (typeof roughness === 'number') (material as unknown as { roughness?: number }).roughness = roughness;
-      if (typeof metalness === 'number') (material as unknown as { metalness?: number }).metalness = metalness;
-    }
-
-    if (Array.isArray(materialDef.emissiveFactor)) {
-      const emissive = (material as unknown as { emissive?: Color }).emissive;
-      if (emissive) {
-        const [r, g, b] = materialDef.emissiveFactor as number[];
-        emissive.setRGB(r, g, b, LinearSRGBColorSpace);
+    for (const [index, materials] of groups) {
+      const raw = this.parser.json.materials?.[index]?.extensions?.[this.name];
+      if (raw === undefined) continue;
+      try {
+        const extension = this.validate(raw);
+        const types = { ...builtInTypes, ...this.options.materialTypes };
+        const Type = hasOwn(types, extension.materialType) ? types[extension.materialType] : undefined;
+        if (typeof Type !== 'function') throw new Error(`Unknown materialType "${extension.materialType}"`);
+        const candidates = new Map<Material, NodeMaterial>();
+        for (const source of materials) {
+          const target = new Type();
+          if (!target?.isNodeMaterial || target.type !== extension.materialType) {
+            throw new Error(`Unusable materialType "${extension.materialType}"`);
+          }
+          this.copyOrdinaryMaterial(source, target);
+          candidates.set(source, target);
+        }
+        const slots = await this.resolveGraph(extension);
+        for (const target of candidates.values()) {
+          for (const [slot, node] of Object.entries(slots)) {
+            if (!safeKey(slot) || !slot.endsWith('Node') || !(slot in target)) {
+              throw new Error(`Unsupported entrypoint "${slot}"`);
+            }
+            (target as unknown as Record<string, unknown>)[slot] = node;
+          }
+          target.needsUpdate = true;
+          this.options.onApplied?.(target, extension);
+        }
+        for (const [source, target] of candidates) replacements.set(source, target);
+      } catch (error) {
+        this.options.onError?.(error);
       }
     }
 
-    const emissiveStrength = materialDef.extensions?.KHR_materials_emissive_strength as
-      | { emissiveStrength?: number }
-      | undefined;
-    if (emissiveStrength && typeof emissiveStrength.emissiveStrength === 'number') {
-      (material as unknown as { emissiveIntensity?: number }).emissiveIntensity = emissiveStrength.emissiveStrength;
+    for (const [source, target] of replacements) {
+      const association = this.parser.associations.get(source);
+      if (association) this.parser.associations.set(target, association);
+    }
+    // GLTFParser's runtime dependency cache is not declared by @types/three.
+    const cache = (this.parser as GLTFParser & { cache: { add(key: string, value: unknown): void } }).cache;
+    originals.forEach((source, index) => {
+      const target = replacements.get(source);
+      if (target) cache.add(`material:${index}`, Promise.resolve(target));
+    });
+    // getDependencies() also caches the complete array.
+    cache.add('material', Promise.resolve(originals.map((source) => replacements.get(source) ?? source)));
+    for (const scene of result.scenes) {
+      scene.traverse((object) => {
+        const mesh = object as unknown as { material?: Material | Material[] };
+        if (Array.isArray(mesh.material)) mesh.material = mesh.material.map((source) => replacements.get(source) ?? source);
+        else if (mesh.material) mesh.material = replacements.get(mesh.material) ?? mesh.material;
+      });
     }
   }
 
-  private resolveNodeFactory(op: string, args?: JsonValue): unknown {
-    if (!this.options.nodeResolver) {
-      throw new Error('nodeResolver is required. Pass createDefaultNodeResolver() or a custom resolver.');
+  private copyOrdinaryMaterial(source: Material, target: NodeMaterial) {
+    // Use Three.js copy routines for colors/vectors/textures and extension values;
+    // NodeMaterial.copy() itself copies graph slots, not all ordinary PBR values.
+    const flags = target as unknown as Record<string, unknown>;
+    if (source instanceof MeshPhysicalMaterial && flags.isMeshPhysicalNodeMaterial) {
+      MeshPhysicalMaterial.prototype.copy.call(target as unknown as MeshPhysicalMaterial, source);
+    } else if (source instanceof MeshStandardMaterial && flags.isMeshStandardNodeMaterial) {
+      if (source instanceof MeshPhysicalMaterial) throw new Error('materialType cannot preserve physical material properties');
+      MeshStandardMaterial.prototype.copy.call(target as unknown as MeshStandardMaterial, source);
+    } else if (source instanceof MeshBasicMaterial && flags.isMeshBasicNodeMaterial) {
+      MeshBasicMaterial.prototype.copy.call(target as unknown as MeshBasicMaterial, source);
+    } else {
+      throw new Error('Unsupported ordinary material / NodeMaterial pairing');
     }
-    return this.options.nodeResolver(op, args);
   }
 
-  private async applyExtension(material: NodeMaterial, extension: ExtensionDefinition) {
-    const { entrypoints, nodes } = extension;
-
-    if (!entrypoints || Object.keys(entrypoints).length === 0) {
-      throw new Error('Missing entrypoints');
+  private validate(raw: unknown): ExtensionDefinition {
+    if (!record(raw) || raw.version !== '2.0') throw new Error('Unsupported extension version');
+    if (typeof raw.materialType !== 'string' || !raw.materialType.trim()) throw new Error('Invalid materialType');
+    if (!record(raw.entrypoints) || !Object.keys(raw.entrypoints).length || !record(raw.nodes)) throw new Error('Missing entrypoints or nodes');
+    for (const [id, node] of Object.entries(raw.nodes)) {
+      if (!safeKey(id) || !record(node) || typeof node.op !== 'string' || !node.op.trim()) throw new Error(`Invalid node "${id}"`);
+      if (node.args !== undefined) this.validateJson(node.args);
+      if (node.links !== undefined && !record(node.links)) throw new Error('Invalid links');
     }
+    for (const id of Object.values(raw.entrypoints)) {
+      if (typeof id !== 'string' || !hasOwn(raw.nodes, id)) throw new Error('Missing entrypoint node');
+    }
+    return raw as ExtensionDefinition;
+  }
 
-    for (const nodeId of Object.values(entrypoints)) {
-      if (!nodes[nodeId]) {
-        throw new Error(`Entrypoint nodeId "${nodeId}" is missing`);
+  private validateJson(value: unknown): void {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
+    if (typeof value === 'number' && Number.isFinite(value)) return;
+    if (Array.isArray(value)) { value.forEach((item) => this.validateJson(item)); return; }
+    if (record(value)) {
+      for (const [key, item] of Object.entries(value)) {
+        if (!safeKey(key)) throw new Error('Invalid argument property');
+        this.validateJson(item);
       }
+      return;
     }
+    throw new Error('Arguments must be JSON literals');
+  }
 
-    const resolving = new Set<string>();
+  private async resolveGraph(extension: ExtensionDefinition) {
     const resolved = new Map<string, unknown>();
-
-    const resolveNode = async (nodeId: string): Promise<unknown> => {
-      if (resolved.has(nodeId)) return resolved.get(nodeId);
-
-      if (resolving.has(nodeId)) {
-        throw new Error(`Cycle detected at nodeId "${nodeId}"`);
+    const resolving = new Set<string>();
+    const resolveNode = async (id: string): Promise<unknown> => {
+      if (resolved.has(id)) return resolved.get(id);
+      if (resolving.has(id)) throw new Error(`Cycle detected at "${id}"`);
+      if (!hasOwn(extension.nodes, id)) throw new Error(`Missing node "${id}"`);
+      const def = extension.nodes[id];
+      resolving.add(id);
+      const factory = this.options.nodeResolver(def.op, def.args);
+      let node: unknown = factory;
+      if (typeof factory === 'function') {
+        const args = def.args === undefined ? [] : Array.isArray(def.args) ? def.args : [def.args];
+        // Classes and arrow factories are both supported, without retrying a
+        // failed constructor and hiding its reconstruction error.
+        node = factory.prototype ? new (factory as new (...args: unknown[]) => unknown)(...args) : factory(...args);
       }
-
-      const nodeDef = nodes[nodeId];
-      if (!nodeDef) {
-        throw new Error(`Missing nodeId "${nodeId}"`);
+      if (!isNode(node)) throw new Error(`Unknown or unusable op "${def.op}"`);
+      if (def.links) {
+        // Shared TSL singleton operations must never be mutated by file data.
+        if (sharedNodes.has(node) && Object.keys(def.links).length) throw new Error('Shared TSL operations cannot have links');
+        for (const [slot, value] of Object.entries(def.links)) {
+          if (!safeKey(slot)) throw new Error('Invalid link property');
+          (node as unknown as Record<string, unknown>)[slot] = await resolveLink(value);
+        }
       }
-
-      resolving.add(nodeId);
-
-      const node = await this.createNode(nodeDef);
-      if (nodeDef.links) {
-        await this.applyLinks(node, nodeDef.links, resolveNode);
-      }
-
-      resolving.delete(nodeId);
-      resolved.set(nodeId, node);
+      resolving.delete(id);
+      resolved.set(id, node);
       return node;
     };
-
-    try {
-      const entrypointPromises = Object.entries(entrypoints).map(
-        async ([slotName, nodeId]) => {
-          const node = await resolveNode(nodeId);
-          (material as unknown as Record<string, unknown>)[slotName] = node;
+    const resolveLink = async (value: unknown): Promise<unknown> => {
+      if (Array.isArray(value)) {
+        const result = [];
+        for (const item of value) result.push(await resolveLink(item));
+        return result;
+      }
+      if (!record(value)) throw new Error('Invalid link value');
+      const refs = ['$ref', '$refTex', '$refAccessor'].filter((key) => hasOwn(value, key));
+      if (refs.length) {
+        if (refs.length !== 1 || Object.keys(value).length !== 1) throw new Error('Invalid reference');
+        const key = refs[0];
+        const ref = value[key];
+        if (key === '$ref') {
+          if (typeof ref !== 'string') throw new Error('Invalid node reference');
+          return resolveNode(ref);
         }
-      );
-      await Promise.all(entrypointPromises);
-      material.needsUpdate = true;
-      if (this.options.onApplied) {
-        this.options.onApplied(material, extension);
+        const kind = key === '$refTex' ? 'texture' : 'accessor';
+        const list = this.parser.json[kind === 'texture' ? 'textures' : 'accessors'] ?? [];
+        if (typeof ref !== 'number' || !Number.isInteger(ref) || ref < 0 || ref >= list.length) throw new Error(`Invalid ${kind} index`);
+        const dependency = await this.parser.getDependency(kind, ref);
+        if (!dependency) throw new Error(`Missing ${kind}`);
+        return dependency;
       }
-    } catch (error) {
-      if (this.options.onError) {
-        this.options.onError(error);
+      const result: Record<string, unknown> = {};
+      for (const [key, item] of Object.entries(value)) {
+        if (!safeKey(key)) throw new Error('Invalid link property');
+        result[key] = await resolveLink(item);
       }
-      // Ignore extension on failure, per spec.
+      return result;
+    };
+    // Sequential DFS distinguishes shared DAG inputs from true cycles. Validate
+    // every definition, including nodes not reachable from an entrypoint.
+    for (const id of Object.keys(extension.nodes)) await resolveNode(id);
+    const slots: Record<string, unknown> = {};
+    for (const [slot, id] of Object.entries(extension.entrypoints)) {
+      if (!safeKey(slot)) throw new Error('Invalid entrypoint');
+      slots[slot] = resolved.get(id);
     }
-  }
-
-  private async createNode(nodeDef: NodeDefinition): Promise<unknown> {
-    const factory = this.resolveNodeFactory(nodeDef.op, nodeDef.args);
-    if (!factory) {
-      throw new Error(`Unknown op "${nodeDef.op}"`);
-    }
-
-    if (typeof factory === 'function') {
-      const args = this.normalizeArgs(nodeDef.args);
-      try {
-        return new (factory as new (...factoryArgs: unknown[]) => unknown)(...args);
-      } catch {
-        return (factory as (...factoryArgs: unknown[]) => unknown)(...args);
-      }
-    }
-
-    return factory;
-  }
-
-  private normalizeArgs(args: JsonValue | undefined): unknown[] {
-    if (args === undefined) return [];
-    if (Array.isArray(args)) return args;
-    return [args];
-  }
-
-  private async applyLinks(
-    node: unknown,
-    links: Record<string, LinkValue>,
-    resolveNode: (nodeId: string) => Promise<unknown>
-  ) {
-    const linkEntries = Object.entries(links);
-
-    for (const [slotName, linkDef] of linkEntries) {
-      const value = await this.resolveLinkValue(linkDef, resolveNode);
-      (node as Record<string, unknown>)[slotName] = value;
-    }
-  }
-
-  private isLinkDefinition(value: unknown): value is LinkDefinition {
-    if (!value || typeof value !== 'object') return false;
-    const link = value as LinkDefinition;
-    return link.$ref !== undefined || link.$refTex !== undefined || link.$refAccessor !== undefined;
-  }
-
-  private async resolveLinkValue(
-    linkDef: LinkValue,
-    resolveNode: (nodeId: string) => Promise<unknown>
-  ): Promise<unknown> {
-    if (linkDef === null) return null;
-
-    if (Array.isArray(linkDef)) {
-      const resolved: unknown[] = [];
-      for (let i = 0; i < linkDef.length; i += 1) {
-        if (!(i in linkDef)) continue;
-        resolved[i] = await this.resolveLinkValue(linkDef[i], resolveNode);
-      }
-      return resolved;
-    }
-
-    if (this.isLinkDefinition(linkDef)) {
-      if (linkDef.$ref !== undefined) {
-        return resolveNode(linkDef.$ref);
-      }
-
-      if (linkDef.$refTex !== undefined) {
-        const textures = this.parser.json.textures ?? [];
-        if (linkDef.$refTex < 0 || linkDef.$refTex >= textures.length) {
-          throw new Error(`Texture index out of range: ${linkDef.$refTex}`);
-        }
-        return this.parser.getDependency('texture', linkDef.$refTex);
-      }
-
-      if (linkDef.$refAccessor !== undefined) {
-        const accessors = this.parser.json.accessors ?? [];
-        if (linkDef.$refAccessor < 0 || linkDef.$refAccessor >= accessors.length) {
-          throw new Error(`Accessor index out of range: ${linkDef.$refAccessor}`);
-        }
-        return this.parser.getDependency('accessor', linkDef.$refAccessor);
-      }
-
-      return null;
-    }
-
-    if (linkDef && typeof linkDef === 'object') {
-      const resolved: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(linkDef as Record<string, LinkValue>)) {
-        resolved[key] = await this.resolveLinkValue(value, resolveNode);
-      }
-      return resolved;
-    }
-
-    return null;
+    return slots;
   }
 }
