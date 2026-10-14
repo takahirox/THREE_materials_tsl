@@ -75,7 +75,10 @@ const nodeSerializer = createDefaultNodeSerializer({
 `args` must contain JSON literals. Links accept nodes (or `{ node }` wrappers),
 `{ texture }`, `{ accessor }`, and nested arrays/objects of these targets.
 Textures/accessors are exported through the glTF writer and resolved by the
-loader. Missing accessor support or invalid link targets throw. Custom nodes
+loader. Explicit `{ $refTex: index }` and `{ $refAccessor: index }` links must
+refer to resources in the final exported tables; dangling references throw
+after scene processing, allowing references to resources emitted later.
+Missing accessor support or invalid link targets throw. Custom nodes
 still need a matching consumer resolver; exporting a custom op does not make it
 universally supported.
 

@@ -299,6 +299,50 @@ it('reconstructs serialized literal values with Three.js semantics', async () =>
   }
 });
 
+it.each([['!', true, 'bool'], ['~', 5, 'int']])('round-trips unary OperatorNode %s without a second input', async (op, value, nodeType) => {
+  const material = new MeshStandardNodeMaterial();
+  material.colorNode = new OperatorNode(op, new ConstNode(value, nodeType));
+  const errors = [];
+  let json = await exportScene(sceneWith(material));
+  const originalGraph = json.materials[0].extensions[extensionName];
+  expect(Object.keys(originalGraph.nodes.n0.links)).toEqual(['aNode']);
+  for (let round = 0; round < 2; round++) {
+    const imported = await load(json, { onError: (error) => errors.push(error) });
+    const actual = meshes(imported.scene)[0].material;
+    expect(errors).toEqual([]);
+    expect(actual.type).toBe('MeshStandardNodeMaterial');
+    expect(actual.colorNode.op).toBe(op);
+    expect(actual.colorNode.aNode.value).toBe(value);
+    expect(actual.colorNode.aNode.nodeType).toBe(nodeType);
+    expect(actual.colorNode.bNode).toBeUndefined();
+    json = await exportScene(imported.scene);
+    expect(json.materials[0].extensions[extensionName]).toEqual(originalGraph);
+  }
+});
+
+it.each([
+  ['$refTex', 0], ['$refTex', 99], ['$refAccessor', 4], ['$refAccessor', 99]
+])('rejects dangling explicit resource reference %s:%i', async (key, index) => {
+  const material = new MeshStandardNodeMaterial();
+  material.colorNode = new ConstNode(0);
+  const nodeSerializer = () => ({ op: 'CustomNode', links: { nested: [{ resource: { [key]: index } }] } });
+  await expect(exportScene(sceneWith(material), { nodeSerializer })).rejects.toThrow(/resource reference/);
+});
+
+it('validates explicit accessor references after later meshes have emitted their resources', async () => {
+  const material = new MeshStandardNodeMaterial();
+  material.colorNode = new ConstNode(0);
+  const scene = sceneWith(material, new MeshStandardMaterial());
+  const nodeSerializer = () => ({ op: 'AccessorNode', links: { data: { $refAccessor: 4 } } });
+  const json = await exportScene(scene, { nodeSerializer });
+  expect(json.accessors.length).toBe(8);
+  const nodeResolver = createDefaultNodeResolver({ overrides: { AccessorNode: () => new ConstNode(0) } });
+  const errors = [];
+  const imported = await load(json, { nodeResolver, onError: (error) => errors.push(error) });
+  expect(errors).toEqual([]);
+  expect(meshes(imported.scene)[0].material.colorNode.data.array).toEqual(scene.children[1].geometry.attributes.position.array);
+});
+
 it('rejects invalid export types, unsupported nodes, cycles and unrepresentable links', async () => {
   for (const type of ['', ' ', null, 42, 'NodeMaterial']) {
     const material = new MeshStandardNodeMaterial();
@@ -324,16 +368,17 @@ it('rejects invalid export types, unsupported nodes, cycles and unrepresentable 
 it('preserves nested node/texture/accessor links using explicit custom adapters', async () => {
   const texture = new Texture();
   const accessor = new BufferAttribute(new Float32Array([1, 2, 3]), 3);
-  const writer = { extensionsUsed: {}, processTextureAsync: async (value) => { expect(value).toBe(texture); return 0; }, processAccessor: (value) => { expect(value).toBe(accessor); return 0; } };
+  const writer = { json: { textures: [{}], accessors: [{}] }, extensionsUsed: {}, processTextureAsync: async (value) => { expect(value).toBe(texture); return 0; }, processAccessor: (value) => { expect(value).toBe(accessor); return 0; } };
   const shared = new ConstNode(0.7, 'float');
   const material = new MeshStandardNodeMaterial();
   material.colorNode = new ConstNode(0);
   const basicSerializer = createDefaultNodeSerializer();
   const plugin = new THREEMaterialsTSLExporterPlugin(writer, { nodeSerializer: (node) => node === material.colorNode ? {
-    op: 'CustomNode', links: { inputs: [{ node: shared }, { tint: { node: shared }, map: { texture }, data: { accessor } }] }
+    op: 'CustomNode', links: { inputs: [{ node: shared }, { tint: { node: shared }, map: { texture }, data: { accessor }, explicitMap: { $refTex: 0 }, explicitData: { $refAccessor: 0 } }] }
   } : basicSerializer(node) });
   const def = {};
   await plugin.writeMaterialAsync(material, def);
+  plugin.afterParse();
   const source = new MeshStandardMaterial({ color: 0x123456 });
   const mesh = new Mesh(new BoxGeometry(), source);
   const scene = new Scene(); scene.add(mesh);
@@ -346,6 +391,8 @@ it('preserves nested node/texture/accessor links using explicit custom adapters'
   expect(inputs[0].value).toBe(0.7);
   expect(inputs[1].map).toBe(texture);
   expect(inputs[1].data).toBe(accessor);
+  expect(inputs[1].explicitMap).toBe(texture);
+  expect(inputs[1].explicitData).toBe(accessor);
   expect(source.colorNode).toBeUndefined();
   delete writer.processAccessor;
   await expect(plugin.writeMaterialAsync(material, {})).rejects.toThrow(/accessor link/);

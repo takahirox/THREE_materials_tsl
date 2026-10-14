@@ -31,10 +31,22 @@ export class THREEMaterialsTSLExporterPlugin {
 
   private readonly writer: GLTFWriter;
   private readonly options: THREEMaterialsTSLExporterPluginOptions;
+  private readonly resourceReferences: { table: 'textures' | 'accessors'; index: number }[] = [];
 
   constructor(writer: GLTFWriter, options: THREEMaterialsTSLExporterPluginOptions) {
     this.writer = writer;
     this.options = options;
+  }
+
+  afterParse() {
+    // References may point to resources emitted by later meshes or animations.
+    // GLTFWriter exposes json at runtime; r182's declarations omit it.
+    const { json } = this.writer as GLTFWriter & {
+      json: { textures?: unknown[]; accessors?: unknown[] };
+    };
+    for (const { table, index } of this.resourceReferences) {
+      if (!json[table]?.[index]) throw new Error(`Invalid resource reference: ${table}[${index}] was not exported`);
+    }
   }
 
   async writeMaterialAsync(material: Material, materialDef: Record<string, unknown>) {
@@ -187,6 +199,7 @@ export class THREEMaterialsTSLExporterPlugin {
         } else {
           const index = refs[0] === '$refTex' ? link.$refTex : link.$refAccessor;
           if (typeof index !== 'number' || !Number.isInteger(index) || index < 0) throw new Error('Invalid resource reference');
+          this.resourceReferences.push({ table: refs[0] === '$refTex' ? 'textures' : 'accessors', index });
         }
       } else {
         Object.values(value).forEach(checkLink);

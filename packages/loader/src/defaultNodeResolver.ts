@@ -49,8 +49,14 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
       return new MathNodeCtor(args.method, placeholder);
     }
     if (op === 'OperatorNode') {
-      const args = _args as { op?: OperatorNodeOp } | undefined;
+      const args = _args as { op?: OperatorNodeOp | '!' | '~' } | undefined;
       const placeholder = new ConstNode(0, 'float');
+      if (args?.op === '!' || args?.op === '~') {
+        // r182 supports unary operators, but its declarations require two inputs.
+        // Leave bNode undefined so it is neither built nor exported as a link.
+        const UnaryOperatorNode = OperatorNode as unknown as new (op: '!' | '~', a: ConstNode<number>) => OperatorNode;
+        return new UnaryOperatorNode(args.op, placeholder);
+      }
       if (!args?.op || !['+', '-', '*', '/', '%', '==', '!=', '<', '>', '<=', '>=', '&&', '||', '^^', '&', '|', '^', '<<', '>>'].includes(args.op)) return null;
       return new OperatorNode(args.op, placeholder, placeholder);
     }
