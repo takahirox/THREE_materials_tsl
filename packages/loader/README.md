@@ -1,7 +1,7 @@
 # @takahirox/gltf-three-materials-tsl-loader
 
 GLTFLoader plugin for [THREE_materials_tsl Draft v2.0](../../README.md).
-Version 0.4.0 is v2.0-only. Earlier encodings use the ordinary glTF fallback.
+Version 0.4.1 is v2.0-only. Earlier encodings use the ordinary glTF fallback.
 
 ## Install
 
@@ -103,3 +103,44 @@ npm run build
 
 The shared integration suite lives in [the demo package](../demo/README.md#tests)
 and tests both plugins with the real Three.js loader/exporter.
+
+## 0.4.1 release note
+
+This release adds a `prepack` hook that removes `dist/` and rebuilds the current
+TypeScript sources before `npm pack` or `npm publish`. A failed clean or build
+stops packing/publishing, preventing stale artifacts from being released. The
+Draft v2.0-only implementation, required `materialType`, Three.js r186 validation
+baseline, public package name and export paths are unchanged. The version bump
+prepares a corrected release; it does not establish what the published 0.4.0
+tarball contains.
+
+See the [0.4.1 validation report](../../docs/npm-0.4.1-validation.md) for local
+tarball inspection and lifecycle failure checks.
+
+## Manual publishing (maintainer only)
+
+After reviewing and merging, run from the repository root:
+
+```sh
+npm login
+cd packages/loader
+npm ci
+npm pack --dry-run
+# Review the file list for dist/index.js, the plugin/resolver .js and .d.ts files.
+npm publish
+# After publication, verify the registry version:
+npm view @takahirox/gltf-three-materials-tsl-loader version
+npm view @takahirox/gltf-three-materials-tsl-loader@0.4.1 version
+```
+
+Do **not** use `--ignore-scripts` for packing or publishing, or disable scripts
+in npm configuration: that bypasses the clean build. Install development
+dependencies with `npm ci` (without `--omit=dev`) so TypeScript is available.
+The manifest configures public access for this scoped package.
+
+The maintainer must verify both registry queries return `0.4.1`, inspect the
+published 0.4.1 tarball for the expected Draft v2.0 compiled files, and record the
+result. Publication, post-publication verification, and any optional deprecation
+of a confirmed broken 0.4.0 release remain manual maintainer actions. Publish the
+[exporter](../exporter/README.md#manual-publishing-maintainer-only) separately
+from its package directory.
