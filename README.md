@@ -4,6 +4,13 @@ glTF Vendor Extension — Draft v1.0
 
 Demo: https://takahirox.github.io/THREE_materials_tsl/
 
+## Contributing
+
+Use English for new collaboration content. Follow the [development flow](docs/development-flow.md)
+and [review and merge guidelines](docs/review-guidelines.md). AI agents should start with
+[AGENTS.md](AGENTS.md). Use the [Issue template](.github/ISSUE_TEMPLATE/issue.md)
+and [Pull Request template](.github/pull_request_template.md).
+
 ## Plugins
 
 Reference implementations for Three.js are available as separate packages:
