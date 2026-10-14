@@ -1,6 +1,6 @@
 # THREE_materials_tsl
 
-glTF Vendor Extension — Draft v1.0
+glTF Vendor Extension — Draft v2.0
 
 Demo: https://takahirox.github.io/THREE_materials_tsl/
 
@@ -37,10 +37,12 @@ npm install @takahirox/gltf-three-materials-tsl-loader @takahirox/gltf-three-mat
 `Three.js TSL / NodeMaterial` graphs to be serialized into glTF
 without embedding or executing JavaScript code.
 
-The extension stores a node graph as declarative JSON.
-A compatible Three.js consumer reconstructs the graph by resolving
-each node operation through a consumer-provided mapping and wiring
-references described in the extension.
+The extension stores a NodeMaterial type identifier and a node graph as
+declarative JSON. A compatible Three.js consumer resolves the material type
+and each node operation through consumer-provided mappings and reconstructs
+the graph by wiring references described in the extension. The reconstructed
+NodeMaterial retains the ordinary material properties represented by glTF
+and supported non-`THREE_materials_tsl` material extensions.
 
 This extension is a serialization container, not a general-purpose
 shading language specification.
@@ -70,11 +72,19 @@ Three.js node model and serialization facilities wherever practical. Keep the
 extension and its supporting implementations focused on transporting node data
 and resolving references, rather than reimplementing Three.js node semantics.
 
-The extension defines a declarative, data-only container for node identifiers,
-literal arguments, links, and material entrypoints. A compatible Three.js consumer
-resolves `op` identifiers and interprets node-specific arguments and semantics
-using a registry, resolver, or equivalent mapping. No specific built-in Three.js
-registry API or consumer resolver API is required by this specification.
+The extension defines a declarative, data-only container for the NodeMaterial
+type, node identifiers, literal arguments, links, and material entrypoints.
+A compatible Three.js consumer resolves `materialType` to a supported NodeMaterial
+class, resolves `op` identifiers, and interprets node-specific arguments and
+semantics using registries, resolvers, or equivalent mappings. No specific
+built-in Three.js registry API or consumer resolver API is required by this
+specification, and no fixed catalog of NodeMaterial classes is specified.
+
+The glTF material and its supported non-`THREE_materials_tsl` extensions provide
+ordinary material properties; this extension adds the TSL graph to the resolved
+NodeMaterial. Node-versus-property behavior follows Three.js NodeMaterial
+semantics. The extension introduces no new priority or shading-composition rule
+and does not prescribe a construction or property-transfer sequence.
 
 Leaving operation semantics implementation-defined allows the extension to follow
 evolving Three.js / TSL APIs and support consumer-provided custom nodes without
@@ -112,13 +122,23 @@ The extension MUST be defined under a glTF material:
 materials[i].extensions.THREE_materials_tsl
 ```
 
-Standard glTF material properties SHOULD be preserved as a fallback.
+Standard glTF material properties and supported non-`THREE_materials_tsl`
+material extensions MUST be preserved. When applying this extension, their
+corresponding material values MUST be available as ordinary properties of the
+resolved NodeMaterial, in addition to the serialized TSL entrypoints and graph.
+These properties are not merely a fallback appearance.
+
+A consumer without TSL support uses the ordinary glTF material, including its
+other supported material extensions, as the fallback. A consumer that cannot
+apply this extension MUST use the same fallback as described in
+[Consumer Requirements](#consumer-requirements).
 
 ## Top-Level Object
 
 ### Required Properties
 
-* version (string): Node graph encoding version
+* version (string): Extension encoding version
+* materialType (string): Original Three.js NodeMaterial type identifier
 * entrypoints (object): Slot name → nodeId mapping
 * nodes (object): Node dictionary
 
@@ -131,18 +151,53 @@ Standard glTF material properties SHOULD be preserved as a fallback.
 
 ```json
 {
-  "version": "1.0",
+  "version": "2.0",
+  "materialType": "MeshStandardNodeMaterial",
   "three": { "revision": "r160" },
-  "entrypoints": { "...": "nodeId" },
-  "nodes": { "...": { ... } },
-  "compat": { ... }
+  "entrypoints": { "colorNode": "outColor" },
+  "nodes": {
+    "outColor": {
+      "op": "ConstNode",
+      "args": { "value": [1, 0, 0], "valueType": "color" }
+    }
+  },
+  "compat": {}
 }
 ```
 
 ### version
 
-version specifies the node graph encoding version used by this extension.
-Implementations MUST ignore the extension data if the version is not supported.
+version specifies the extension encoding version, including the material type
+and node graph representation. This draft uses `"2.0"`. Implementations MUST
+ignore the entire extension for a material if its version is not supported and
+use the ordinary glTF material, including other supported material extensions,
+as fallback.
+
+Draft v2.0 introduces the required `materialType` field as a breaking change
+from Draft v1.0. Existing `"1.0"` data is not valid v2.0 data, and changing only
+its version to `"2.0"` does not satisfy the new requirement. A consumer MAY
+separately support the earlier v1.0 encoding under its original rules; this
+draft does not redefine v1.0 or implicitly supply a missing material type.
+A consumer that does not support v1.0 MUST ignore its entire extension for the
+material and use the ordinary glTF fallback, including other supported material
+extensions. Consumers that only support v1.0 likewise cannot apply v2.0 data.
+
+### materialType
+
+materialType MUST be a non-empty string identifying the original Three.js
+NodeMaterial type. Built-in types can use names such as
+`"MeshStandardNodeMaterial"` or `"MeshPhysicalNodeMaterial"`, consistent with
+`material.type`.
+
+A compatible consumer MUST resolve this identifier to a supported, usable
+NodeMaterial class. Custom NodeMaterial types MAY be supported through
+consumer-provided mappings. This specification requires neither a fixed class
+catalog nor a particular resolver API.
+
+If materialType is missing, invalid, unknown, or cannot be resolved to a usable
+NodeMaterial class, the consumer MUST ignore the entire extension for that
+material and use the ordinary glTF fallback, including other supported material
+extensions. It MUST NOT infer a replacement type and partially apply the graph.
 
 ### three (optional)
 
@@ -192,6 +247,17 @@ material[slotName] = resolvedNode
 Entry point keys are expected to correspond to NodeMaterial properties,
 but this specification does not standardize or restrict them.
 
+The serialized entrypoints and node graph MUST coexist with the NodeMaterial's
+ordinary properties supplied by the glTF material and its other supported
+material extensions. Their interaction, including node-versus-property
+precedence, follows Three.js NodeMaterial semantics; this extension defines no
+additional priority or shading-composition rule.
+
+A TSL node such as `materialColor` can retain its dynamic reference to
+`material.color`. Consumers MUST preserve that Three.js behavior when
+reconstructing the graph, rather than substitute a fixed value for the dynamic
+reference.
+
 ---
 
 ## Node Dictionary
@@ -214,7 +280,9 @@ A node definition object contains:
 * op MUST be a string identifying a node known to the consumer through its
   registry, resolver, or equivalent mapping.
 * No fallback resolution mechanism is defined.
-* If an op cannot be resolved, the extension MUST be ignored.
+* If an op cannot be resolved, the entire extension for that material MUST be
+  ignored, using the ordinary glTF material and its other supported extensions
+  as fallback.
 
 All operation semantics are delegated to the compatible Three.js consumer.
 
@@ -264,7 +332,8 @@ Accessor references point to `glTF.accessors[n]`.
 The consumer is expected to resolve these references to runtime objects
 such as `THREE.Texture` or `BufferAttribute`.
 
-Example with array/object links:
+Example fragment with array/object links (top-level version and materialType
+omitted):
 
 ```json
 {
@@ -299,14 +368,29 @@ All fields are hints only and MAY be ignored by consumers.
 
 ## Consumer Requirements
 
-A consumer MUST ignore the entire extension and fall back to standard
-glTF material behavior if:
+A consumer applying this extension MUST resolve materialType to a usable
+NodeMaterial class whose ordinary properties retain the corresponding values
+from the glTF material and supported non-`THREE_materials_tsl` material
+extensions, with the serialized TSL entrypoints and graph applied in addition.
+These requirements describe the result, not an implementation sequence.
 
+A consumer MUST ignore the entire `THREE_materials_tsl` extension for the
+affected material and fall back to the ordinary glTF material, including other
+supported material extensions, if:
+
+* The extension version is unsupported
+* A required field is missing or invalid (including an empty entrypoints object)
+* materialType is unknown or cannot be resolved to a usable NodeMaterial class
 * An entrypoint references a non-existent nodeId
 * A reference points to a missing nodeId
 * A graph cycle is detected
 * An op cannot be resolved
 * A texture or accessor index is out of range
+* Any other graph reconstruction error prevents applying the extension
+
+Fallback MUST leave no partially applied TSL nodes or entrypoints from this
+extension on the material. Ignoring `THREE_materials_tsl` MUST NOT discard the
+ordinary glTF material or its other supported material extensions.
 
 ## Security Considerations
 
