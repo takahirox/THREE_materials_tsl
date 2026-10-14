@@ -46,16 +46,16 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
       const args = _args as { method?: MathNodeMethod } | undefined;
       const placeholder = new ConstNode(0, 'float');
       if (!args?.method || !Object.values(MathNode).includes(args.method)) return null;
-      const MathNodeCtor = MathNode as unknown as new (method: MathNodeMethod, a: ConstNode<number>) => MathNode;
+      const MathNodeCtor = MathNode as unknown as new (method: MathNodeMethod, a: typeof placeholder) => MathNode;
       return new MathNodeCtor(args.method, placeholder);
     }
     if (op === 'OperatorNode') {
       const args = _args as { op?: OperatorNodeOp | '!' | '~' } | undefined;
       const placeholder = new ConstNode(0, 'float');
       if (args?.op === '!' || args?.op === '~') {
-        // r182 supports unary operators, but its declarations require two inputs.
+        // Three.js supports unary operators, but its declarations require two inputs.
         // Leave bNode undefined so it is neither built nor exported as a link.
-        const UnaryOperatorNode = OperatorNode as unknown as new (op: '!' | '~', a: ConstNode<number>) => OperatorNode;
+        const UnaryOperatorNode = OperatorNode as unknown as new (op: '!' | '~', a: typeof placeholder) => OperatorNode;
         return new UnaryOperatorNode(args.op, placeholder);
       }
       if (!args?.op || !['+', '-', '*', '/', '%', '==', '!=', '<', '>', '<=', '>=', '&&', '||', '^^', '&', '|', '^', '<<', '>>'].includes(args.op)) return null;

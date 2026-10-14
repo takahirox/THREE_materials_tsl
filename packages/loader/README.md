@@ -47,7 +47,10 @@ exactly matches the identifier. The removed `materialType` and
 
 ## Supported scope
 
-The reference implementation is tested with Three.js **r182** and mesh materials.
+The reference implementation is tested with Three.js **r186** (`three@0.186.1`,
+`@types/three@0.186.0`) and mesh materials. The existing peer dependency range
+`three >=0.182.0` is retained; this validation does not establish compatibility
+with every release in that range.
 It preserves GLTFLoader's core PBR/alpha/texture values and its supported ordinary
 material extensions, including physical clearcoat, transmission, volume, IOR,
 specular, sheen, iridescence, anisotropy, dispersion and emissive strength.

@@ -324,7 +324,9 @@ describe.each(['ConstNode', 'UniformNode'])('%s without nodeType', (op) => {
     expect(node.type).toBe(op);
     expect(node.value?.toArray ? node.value.toArray() : node.value?.elements ?? node.value).toEqual(value);
     expect(node.precision).toBe('high');
-    const builder = new NodeBuilder(null, null, null);
+    // r186 reads renderer diagnostics when registering uniform declarations.
+    // Supply only that setting; literal generation still uses the real NodeBuilder.
+    const builder = new NodeBuilder(null, { debug: { diagnostics: { keywords: false } } }, null);
     builder.setShaderStage('fragment');
     expect(node.getNodeType(builder)).toBe(valueType);
     const snippet = node.generate(builder, valueType);

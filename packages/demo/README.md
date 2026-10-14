@@ -18,15 +18,20 @@ Open the local dev server URL shown by Vite. Rendering requires WebGPU.
 ```sh
 npm ci
 npm test
+npm run typecheck
 npm run build
 ```
 
 The Vitest suite imports both plugins' source through the same aliases and
-Three.js deduplication as the demo. It uses real r182 GLTFLoader/GLTFExporter
+Three.js deduplication as the demo. It uses real r186 GLTFLoader/GLTFExporter
 round trips with embedded buffers. Node provides the test environment; small
 FileReader/ProgressEvent shims cover buffer I/O, so a browser/GPU is unnecessary.
 Texture binding tests inject a Texture source rather than decode images. Tests
 exercise Three.js material-reference updates, not GPU pixel output.
+
+The tested versions are `three@0.186.1` and `@types/three@0.186.0`. See the
+[r186 validation report](../../docs/three-r186-validation.md) for Issue #11's
+clean-install, test, build and dependency-audit results.
 
 Coverage includes standard/physical/unlit material types, ordinary PBR and
 supported physical `KHR_materials_*` values, dynamic materialColor, repeated
@@ -45,6 +50,7 @@ npm --prefix packages/demo ci
 npm --prefix packages/demo test
 npm --prefix packages/loader run build
 npm --prefix packages/exporter run build
+npm --prefix packages/demo run typecheck
 npm --prefix packages/demo run build
 git diff --check
 ```
