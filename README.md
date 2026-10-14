@@ -39,7 +39,7 @@ without embedding or executing JavaScript code.
 
 The extension stores a node graph as declarative JSON.
 A compatible Three.js consumer reconstructs the graph by resolving
-each node operation via the Three.js NodeRegistry and wiring
+each node operation through a consumer-provided mapping and wiring
 references described in the extension.
 
 This extension is a serialization container, not a general-purpose
@@ -62,6 +62,23 @@ compatible Three.js runtime.
 * Use pure JSON data only
 * Enable round-tripping in Three.js (TSL → glTF → TSL)
 * Keep the specification minimal and implementation-driven
+
+## Design Rationale
+
+The extension defines a declarative, data-only container for node identifiers,
+literal arguments, links, and material entrypoints. A compatible Three.js consumer
+resolves `op` identifiers and interprets node-specific arguments and semantics
+using a registry, resolver, or equivalent mapping. No specific built-in Three.js
+registry API or consumer resolver API is required by this specification.
+
+Leaving operation semantics implementation-defined allows the extension to follow
+evolving Three.js / TSL APIs and support consumer-provided custom nodes without
+revising the glTF extension for every node or shader semantic. The specification
+therefore does not standardize an operation catalog or constructor signatures.
+
+Interpretation depends on the consumer and its Three.js environment. Full
+portability across Three.js versions, configurations, or other engines is not
+guaranteed.
 
 ## Non-Goals
 
@@ -125,6 +142,8 @@ version in order to interpret the extension.
 #### three.revision (optional)
 
 A string representing the Three.js revision (for example, "r160").
+This hint does not guarantee compatibility or change the consumer's responsibility
+to resolve operations in its own Three.js environment.
 
 ## Entry Points
 
@@ -172,18 +191,18 @@ nodes object.
 
 A node definition object contains:
 
-* op (required): NodeRegistry registration key
+* op (required): Consumer-resolved node operation identifier
 * args (optional): JSON literal arguments
 * links (optional): Input references
 
 ## Operations (op)
 
-* op MUST be a string identifying a node known to the consumer via the
-  Three.js NodeRegistry.
+* op MUST be a string identifying a node known to the consumer through its
+  registry, resolver, or equivalent mapping.
 * No fallback resolution mechanism is defined.
 * If an op cannot be resolved, the extension MUST be ignored.
 
-All operation semantics are delegated to the Three.js implementation.
+All operation semantics are delegated to the compatible Three.js consumer.
 
 ### op name conventions (non-normative)
 
