@@ -1,5 +1,6 @@
 import * as TSL from 'three/tsl';
 import { Material, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, Texture } from 'three';
+import { finishShadingNode } from './shadingNodes.js';
 import { finishTextureNode } from './textureNodes.js';
 import { MeshBasicNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
 import type { GLTF, GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -184,6 +185,7 @@ export class THREEMaterialsTSLLoaderPlugin {
         }
       }
       finishTextureNode(node, this.graphTextures);
+      finishShadingNode(node);
       resolving.delete(id);
       resolved.set(id, node);
       return node;

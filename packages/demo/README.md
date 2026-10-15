@@ -51,6 +51,13 @@ rotation. These checks do not compile GPU programs or validate rendered pixels. 
 [2D texture audit and subset](../../docs/texture-node-support.md) for supported
 sampling/query nodes, ordinary fallback transform restrictions and texture tests.
 
+The [shading-node suite](test/shading.test.js) covers surface mapping, vertex
+colors, color/output conversion and bit/packing through repeated real round trips.
+It compares GLSL shader generation for every group and WGSL bit/packing generation,
+including native and emulated packed-integer paths. It checks invalid variants and
+atomic ordinary-material fallback; see the [shading audit](../../docs/shading-node-support.md).
+Node-side checks do not establish GPU pixel correctness.
+
 For all required checks from the repository root:
 
 ```sh
