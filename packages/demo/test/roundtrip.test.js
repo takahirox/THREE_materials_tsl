@@ -639,6 +639,88 @@ it.each([
   }
 });
 
+const expressionNodes = [
+  ['unary math', () => new MathNode('sin', new ConstNode(0.5))],
+  ['binary math', () => new MathNode('pow', new ConstNode(0.5), new ConstNode(2))],
+  ['ternary math', () => new MathNode('mix', new ConstNode(0.2), new ConstNode(0.8), new ConstNode(0.5))],
+  ['unary atan', () => new MathNode('atan', new ConstNode(0.5))],
+  ['binary atan', () => new MathNode('atan', new ConstNode(0.5), new ConstNode(1))],
+  ['binary operator', () => new OperatorNode('+', new ConstNode(0.5), new ConstNode(1))],
+  ['unary operator', () => new OperatorNode('~', new ConstNode(1, 'int'))]
+];
+
+it.each(expressionNodes)('preserves nested %s inputs across repeated round trips', async (_, make) => {
+  const source = new MeshStandardNodeMaterial();
+  source.colorNode = new SplitNode(make(), 'x');
+  let json = await exportScene(sceneWith(source));
+  const expected = json.materials[0].extensions[extensionName];
+  for (let round = 0; round < 2; round++) {
+    const errors = [];
+    const imported = await load(json, { onError: (error) => errors.push(error) });
+    expect(errors).toEqual([]);
+    const material = meshes(imported.scene)[0].material;
+    expect(material.type).toBe('MeshStandardNodeMaterial');
+    expect(material.colorNode.node.aNode.value).toBe(make().aNode.value);
+    json = await exportScene(imported.scene);
+    expect(json.materials[0].extensions[extensionName]).toEqual(expected);
+  }
+});
+
+const invalidExpressionLinks = [
+  ...expressionNodes.map(([name, make]) => [`${name} without links`, make, (node) => { delete node.links; }]),
+  ['binary math missing bNode', expressionNodes[1][1], (node) => { delete node.links.bNode; }],
+  ['ternary math missing cNode', expressionNodes[2][1], (node) => { delete node.links.cNode; }],
+  ['binary operator missing bNode', expressionNodes[5][1], (node) => { delete node.links.bNode; }],
+  ['unary math with extra input', expressionNodes[0][1], (node) => { node.links.bNode = node.links.aNode; }],
+  ['binary math with extra input', expressionNodes[1][1], (node) => { node.links.cNode = node.links.aNode; }],
+  ['unary operator with extra input', expressionNodes[6][1], (node) => { node.links.bNode = node.links.aNode; }],
+  ['unknown math method', expressionNodes[0][1], (node) => { node.args.method = 'unknown'; }],
+  ['unknown operator', expressionNodes[5][1], (node) => { node.args.op = 'unknown'; }],
+  ...['MathNode', 'OperatorNode'].flatMap((op) => [
+    ['array input', (ref) => [ref]],
+    ['nested input', (ref) => ({ nested: ref })],
+    ['resource input', () => ({ $refAccessor: 0 })],
+    ['reference with extra fields', (ref) => ({ ...ref, extra: true })]
+  ].map(([name, corrupt]) => [`${op} ${name}`, op === 'MathNode' ? expressionNodes[0][1] : expressionNodes[5][1],
+    (node) => { node.links.aNode = corrupt(node.links.aNode); }]))
+];
+
+it.each(invalidExpressionLinks)('uses whole-material fallback for nested %s', async (_, make, corrupt) => {
+  const source = configure(new MeshPhysicalNodeMaterial());
+  source.colorNode = new SplitNode(make(), 'x');
+  source.roughnessNode = new ConstNode(0.4);
+  const json = await exportScene(sceneWith(source));
+  const extension = json.materials[0].extensions[extensionName];
+  corrupt(extension.nodes[extension.nodes[extension.entrypoints.colorNode].links.node.$ref]);
+  const ordinary = await load(json, {}, false);
+  const errors = [];
+  const imported = await load(json, { onError: (error) => errors.push(error) });
+  expect(errors).toHaveLength(1);
+  const material = meshes(imported.scene)[0].material;
+  expect(material.type).toBe('MeshPhysicalMaterial');
+  expect(material.colorNode).toBeUndefined();
+  expect(material.roughnessNode).toBeUndefined();
+  expectOrdinary(material, meshes(ordinary.scene)[0].material);
+});
+
+it.each([
+  ['ConstNode', () => new ConstNode(1)],
+  ['UniformNode', () => new UniformNode(1)],
+  ['AttributeNode', () => new AttributeNode('position', 'vec3')],
+  ['MathNode', expressionNodes[0][1]],
+  ['OperatorNode', expressionNodes[5][1]],
+  ['SplitNode', () => new SplitNode(new ConstNode(1), 'x')]
+])('rejects private attached graphs on %s during real glTF export', async (_, make) => {
+  for (const attach of [
+    (node) => node.before(new CodeNode('float example;')),
+    (node) => Object.assign(node, { _custom: { nested: [{ input: new ConstNode(2) }] } })
+  ]) {
+    const source = new MeshStandardNodeMaterial();
+    source.colorNode = attach(make());
+    await expect(exportScene(sceneWith(source))).rejects.toThrow(/Unsupported .* link/);
+  }
+});
+
 const invalidDataGraphs = [
   ['missing required link', (e) => { delete e.nodes.n0.links.node; }],
   ['unknown link slot', (e) => { e.nodes.n0.links.extra = { $ref: 'n1' }; }],

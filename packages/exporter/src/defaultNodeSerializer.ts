@@ -2,6 +2,7 @@ import type { JsonValue } from './types.js';
 import type { NodeExport } from './types.js';
 import { getSharedTSLNodeName } from './sharedNodes.js';
 import { serializeDataNode } from './dataNodes.js';
+import { validateNodeLinks } from './nodeLinks.js';
 import { objectGroup } from 'three/tsl';
 import type { Node } from 'three/webgpu';
 import { objectGroup as sourceObjectGroup } from 'three/src/nodes/core/UniformGroupNode.js';
@@ -101,12 +102,11 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
     if (['ConstNode', 'UniformNode', 'AttributeNode', 'MathNode', 'OperatorNode'].includes(nodeType) && !Object.prototype.hasOwnProperty.call(node.constructor, 'type')) {
       throw new Error(`Unsupported subclass of ${nodeType}; supply explicit adapters`);
     }
-    if (['ConstNode', 'UniformNode', 'AttributeNode'].includes(nodeType)) {
-      for (const child of (node as Node).getSerializeChildren()) {
-        if (nodeType !== 'UniformNode' || child.property !== 'groupNode' || ![objectGroup, sourceObjectGroup].includes(child.childNode as typeof objectGroup)) {
-          throw new Error(`Unsupported ${nodeType} link "${child.property}"; supply explicit adapters`);
-        }
-      }
+    if (['ConstNode', 'UniformNode', 'AttributeNode', 'MathNode', 'OperatorNode'].includes(nodeType)) {
+      const inputs = nodeType === 'UniformNode' ? ['groupNode'] :
+        nodeType === 'MathNode' ? ['aNode', 'bNode', 'cNode'] :
+        nodeType === 'OperatorNode' ? ['aNode', 'bNode'] : [];
+      validateNodeLinks(node as Node, inputs);
     }
 
     if (nodeType === 'UniformNode' && ![objectGroup, sourceObjectGroup].includes((node as { groupNode?: unknown }).groupNode as typeof objectGroup)) {

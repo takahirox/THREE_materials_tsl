@@ -20,6 +20,18 @@ const registry = Object.fromEntries(Object.entries(TSL).filter(([, value]) =>
   value && typeof value === 'object' && (value as { isNode?: boolean }).isNode === true
 ));
 
+const validInputs = (links: Record<string, unknown> | undefined, required: string[], optional: string[] = []) =>
+  !!links && required.every((key) => Object.prototype.hasOwnProperty.call(links, key)) &&
+  Object.entries(links).every(([key, value]) =>
+    [...required, ...optional].includes(key) && !!value && typeof value === 'object' &&
+    !Array.isArray(value) && Object.keys(value).length === 1 &&
+    typeof (value as { $ref?: unknown }).$ref === 'string'
+  );
+
+// r186's MathNode input categories; atan additionally accepts a second input.
+const binaryMath = ['equals', 'min', 'max', 'step', 'reflect', 'distance', 'difference', 'dot', 'cross', 'pow', 'transformDirection'];
+const ternaryMath = ['mix', 'clamp', 'refract', 'smoothstep', 'faceforward'];
+
 export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeResolver => {
   const overrides = options.overrides ?? {};
   return (op: string, _args?: JsonValue, links?: Record<string, unknown>) => {
@@ -48,6 +60,9 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
       const args = _args as { method?: MathNodeMethod } | undefined;
       const placeholder = new ConstNode(0, 'float');
       if (!args?.method || !Object.values(MathNode).includes(args.method)) return null;
+      const required = ternaryMath.includes(args.method) ? ['aNode', 'bNode', 'cNode'] :
+        binaryMath.includes(args.method) ? ['aNode', 'bNode'] : ['aNode'];
+      if (!validInputs(links, required, args.method === 'atan' ? ['bNode'] : [])) return null;
       const MathNodeCtor = MathNode as unknown as new (method: MathNodeMethod, a: typeof placeholder) => MathNode;
       return new MathNodeCtor(args.method, placeholder);
     }
@@ -55,12 +70,14 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
       const args = _args as { op?: OperatorNodeOp | '!' | '~' } | undefined;
       const placeholder = new ConstNode(0, 'float');
       if (args?.op === '!' || args?.op === '~') {
+        if (!validInputs(links, ['aNode'])) return null;
         // Three.js supports unary operators, but its declarations require two inputs.
         // Leave bNode undefined so it is neither built nor exported as a link.
         const UnaryOperatorNode = OperatorNode as unknown as new (op: '!' | '~', a: typeof placeholder) => OperatorNode;
         return new UnaryOperatorNode(args.op, placeholder);
       }
       if (!args?.op || !['+', '-', '*', '/', '%', '==', '!=', '<', '>', '<=', '>=', '&&', '||', '^^', '&', '|', '^', '<<', '>>'].includes(args.op)) return null;
+      if (!validInputs(links, ['aNode', 'bNode'])) return null;
       return new OperatorNode(args.op, placeholder, placeholder);
     }
     // Shared identities have no file-supplied state. Ignoring arguments here

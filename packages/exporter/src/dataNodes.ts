@@ -1,6 +1,7 @@
 import { InterpolationSamplingType, InterpolationSamplingMode } from 'three';
 import type { Node } from 'three/webgpu';
 import type { JsonValue, NodeExport } from './types.js';
+import { validateNodeLinks } from './nodeLinks.js';
 
 type Adapter = { fields: string[]; inputs: string[]; optional?: string[] };
 // Only data fields missing from Three.js serialization are read directly. Keep
@@ -62,18 +63,7 @@ export function serializeDataNode(value: object): NodeExport | null {
   }
   // Discovery must agree with the adapter. Extra child slots require an
   // explicit adapter instead of being discarded by a scalar-field allowlist.
-  for (const { property } of children) {
-    if (!inputs.includes(property)) throw new Error(`Unsupported ${node.type} link "${property}"`);
-  }
-  const containsNode = (child: unknown, seen = new Set<unknown>()): boolean => {
-    if (isNode(child)) return true;
-    if (!child || typeof child !== 'object' || seen.has(child)) return false;
-    seen.add(child);
-    return (Array.isArray(child) || Object.getPrototypeOf(child) === Object.prototype) && Object.values(child).some((item) => containsNode(item, seen));
-  };
-  for (const [property, child] of Object.entries(node)) {
-    if (containsNode(child) && !inputs.includes(property)) throw new Error(`Unsupported ${node.type} link "${property}"`);
-  }
+  validateNodeLinks(node, inputs);
   const valueType = (type: unknown) => typeof type === 'string' && /^(?:float|int|uint|bool|color|[biu]?vec[234]|mat[234])$/.test(type);
   const check = (valid: boolean) => { if (!valid) throw new Error(`Invalid ${node.type} arguments`); };
   const validComponents = typeof args.components === 'string' && /^[xyzw]{1,4}$/.test(args.components);
