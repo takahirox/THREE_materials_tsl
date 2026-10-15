@@ -1,3 +1,4 @@
+import { finishUniformArrayNode } from './uniformArrayNodes.js';
 import { finishGeometryNode } from './geometryNodes.js';
 import { validateReferenceMaterial } from './referenceNodes.js';
 import * as TSL from 'three/tsl';
@@ -190,6 +191,7 @@ export class THREEMaterialsTSLLoaderPlugin {
       finishTextureNode(node, this.graphTextures);
       finishShadingNode(node);
       finishGeometryNode(node);
+      finishUniformArrayNode(node);
       for (const material of targets) validateReferenceMaterial(node, material);
       resolving.delete(id);
       resolved.set(id, node);

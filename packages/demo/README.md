@@ -84,3 +84,10 @@ npm --prefix packages/demo run typecheck
 npm --prefix packages/demo run build
 git diff --check
 ```
+
+The [uniform-array suite](test/uniformArrays.test.js) covers all seven bounded
+scalar/color/vector types through repeated real round trips, GLSL/WGSL buffer
+reads/declarations, native padding and per-render updates, shared parent/index
+links, mutable snapshots and complete ordinary-material fallback. See the
+[exact subset, r186 audit and check results](../../docs/uniform-array-support.md).
+GPU compilation and rendered pixels are not established by these Node tests.

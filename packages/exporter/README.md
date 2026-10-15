@@ -93,6 +93,37 @@ output conversion must arrange one final transform (for a manually transformed
 RenderPipeline, set `outputColorTransform = false`). The plugins add no output
 transform. Execution remains entirely Three.js-owned.
 
+### Bounded uniform arrays
+
+The paired defaults support ordinary `UniformArrayNode` and
+`UniformArrayElementNode` instances. This is separate from expression `ArrayNode`.
+Arrays contain 1–4096 numbers (`float`, `int`, `uint`), Color (`color`), or
+Vector2/3/4 (`vec2`/`vec3`/`vec4`) values, with matching types and finite components.
+Signed/unsigned integers must fit 32 bits; Float32-backed components must not
+overflow. Negative zero is excluded because JSON loses its sign. Inferred types
+are stored as their effective native type; `int`/`uint` require explicit types.
+
+The array is a snapshot at export time, with fresh values on import. Shared
+parent/index nodes and material entrypoints retain graph identity. Imported
+arrays remain mutable through Three.js's native setup, padding, `updateBuffer()`
+and per-render updates. The plugins do not store generated buffers or shader
+code. Scalar index nodes (including native `instanceIndex` in valid stages) use
+native semantics; constants must be integral and in range, and the application
+must keep dynamic indices within bounds and obey device uniform limits.
+Attribute indices, including those nested in expressions, require canonical
+geometry names: `position`, `normal`, `tangent`, `uv`, `uv1`, `uv2`, `uv3`,
+`color`, `skinWeight`, `skinIndex`, or custom names matching `^_[a-z0-9_]*$`.
+Other names fail export because native glTF may rename or omit the geometry
+attribute (for example, `customIndex` becomes `_customindex`), breaking its graph
+binding. Use a canonical name on both the geometry and graph, or paired adapters.
+
+Custom callbacks, external live array bindings, custom groups/buffer labels,
+partial update ranges, matrices/other element types and arbitrary buffer,
+attribute/storage/compute layouts need separate adapters. Generated GLSL buffer
+names are omitted. Unsupported exports fail; malformed imports retain the entire
+ordinary material without partial entrypoints. See the
+[exact allowlist, constructor/runtime audit, snapshot contract and validation](../../docs/uniform-array-support.md).
+
 ### Geometry, screen and viewport depth
 
 The paired defaults support ordinary `IndexNode` (`vertex`, `instance`, `draw`),

@@ -1,3 +1,4 @@
+import { resolveUniformArrayNode, isUniformArrayNodeOp } from './uniformArrayNodes.js';
 import { resolveGeometryNode, isGeometryNodeOp } from './geometryNodes.js';
 import { resolveReferenceNode, isReferenceNodeOp } from './referenceNodes.js';
 import * as TSL from 'three/tsl';
@@ -38,14 +39,29 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
   const overrides = options.overrides ?? {};
   return (op: string, _args?: JsonValue, links?: Record<string, unknown>) => {
     if (Object.prototype.hasOwnProperty.call(overrides, op)) return overrides[op];
+    if (isUniformArrayNodeOp(op)) return resolveUniformArrayNode(op, _args, links);
     if (isGeometryNodeOp(op)) return resolveGeometryNode(op, _args, links);
     if (isReferenceNodeOp(op)) return resolveReferenceNode(op, _args, links);
     if (isShadingNodeOp(op)) return resolveShadingNode(op, _args, links);
     if (isDataNodeOp(op)) return resolveDataNode(op, _args, links);
     if (isTextureNodeOp(op)) return resolveTextureNode(op, _args, links);
+    // Literal/index inputs must not silently discard file-supplied state or
+    // acquire arbitrary links during hydration. This also protects array indices.
+    const basicFields: Record<string, string[]> = {
+      ConstNode: ['value', 'valueType', 'nodeType', 'precision'],
+      UniformNode: ['value', 'valueType', 'nodeType', 'precision'],
+      AttributeNode: ['attributeName', 'nodeType'], MathNode: ['method'], OperatorNode: ['op']
+    };
+    if (Object.prototype.hasOwnProperty.call(basicFields, op)) {
+      if (!_args || typeof _args !== 'object' || Array.isArray(_args) ||
+          !Object.keys(_args).every((key) => basicFields[op].includes(key))) return null;
+      if (['ConstNode', 'UniformNode', 'AttributeNode'].includes(op) && links && Object.keys(links).length) return null;
+    }
     if (op === 'ConstNode' || op === 'UniformNode') {
       const args = _args as Record<string, unknown> | undefined;
       if (!args) return null;
+      if (args.nodeType != null && (typeof args.nodeType !== 'string' || !/^(?:float|int|uint|bool|color|[biu]?vec[234]|mat[234])$/.test(args.nodeType))) return null;
+      if (args.precision != null && !['low', 'medium', 'high'].includes(args.precision as string)) return null;
       const sizes: Record<string, number> = { color: 3, vec2: 2, vec3: 3, vec4: 4, mat2: 4, mat3: 9, mat4: 16 };
       const size = sizes[args.valueType as string];
       const valid = size ? Array.isArray(args.value) && args.value.length === size && args.value.every((v) => typeof v === 'number' && Number.isFinite(v)) :
@@ -60,7 +76,9 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
     }
     if (op === 'AttributeNode') {
       const args = _args as { attributeName?: string; nodeType?: string | null } | undefined;
-      return new AttributeNode(args?.attributeName ?? 'uv', args?.nodeType ?? null);
+      if (typeof args?.attributeName !== 'string' || args.attributeName.length === 0) return null;
+      if (args.nodeType != null && (typeof args.nodeType !== 'string' || !/^(?:float|int|uint|bool|color|[biu]?vec[234]|mat[234])$/.test(args.nodeType))) return null;
+      return new AttributeNode(args.attributeName, args.nodeType ?? null);
     }
     if (op === 'MathNode') {
       const args = _args as { method?: MathNodeMethod } | undefined;
