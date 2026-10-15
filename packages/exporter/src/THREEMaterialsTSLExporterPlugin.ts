@@ -1,6 +1,7 @@
+import { validateReferenceMaterial, validateReferenceGeometry } from './referenceNodes.js';
 import { REVISION } from 'three';
 
-import type { BufferAttribute, Material, Texture } from 'three';
+import type { BufferAttribute, Material, Mesh, Texture } from 'three';
 import type { GLTFWriter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import type { LinkDefinition, LinkValue, NodeDefinition, NodeExport } from './types.js';
 import { validateTextureFallback } from './textureNodes.js';
@@ -33,10 +34,21 @@ export class THREEMaterialsTSLExporterPlugin {
   private readonly writer: GLTFWriter;
   private readonly options: THREEMaterialsTSLExporterPluginOptions;
   private readonly resourceReferences: { table: 'textures' | 'accessors'; index: number }[] = [];
+  private readonly materialNodes = new WeakMap<Material, Set<object>>();
 
   constructor(writer: GLTFWriter, options: THREEMaterialsTSLExporterPluginOptions) {
     this.writer = writer;
     this.options = options;
+  }
+
+  writeMesh(mesh: Mesh) {
+    const materials = Array.isArray(mesh.material) ?
+      mesh.geometry.groups.map((group) => (mesh.material as Material[])[group.materialIndex ?? 0]) : [mesh.material];
+    for (const material of materials) {
+      for (const node of this.materialNodes.get(material) ?? []) {
+        validateReferenceGeometry(node, material, mesh.geometry.hasAttribute('tangent'));
+      }
+    }
   }
 
   afterParse() {
@@ -67,7 +79,7 @@ export class THREEMaterialsTSLExporterPlugin {
 
     if (typeof this.options.nodeSerializer !== 'function') throw new Error('nodeSerializer is required');
 
-    const serialized = await this.serializeGraph(entrypoints);
+    const serialized = await this.serializeGraph(entrypoints, material);
     if (Object.values(serialized.nodes).some((node) => node.op === 'TextureNode')) validateTextureFallback(material);
 
     const extension = {
@@ -122,7 +134,7 @@ export class THREEMaterialsTSLExporterPlugin {
     return link.$ref !== undefined || link.$refTex !== undefined || link.$refAccessor !== undefined;
   }
 
-  private async serializeGraph(entrypoints: Record<string, unknown>) {
+  private async serializeGraph(entrypoints: Record<string, unknown>, material: Material) {
     const nodes: Record<string, NodeDefinition> = {};
     const nodeIds = new Map<unknown, string>();
     let nextId = 0;
@@ -142,6 +154,9 @@ export class THREEMaterialsTSLExporterPlugin {
         throw new Error('Node serializer returned no op');
       }
 
+      validateReferenceMaterial(node as object, material);
+      if (!this.materialNodes.has(material)) this.materialNodes.set(material, new Set());
+      this.materialNodes.get(material)!.add(node as object);
       const nodeDef: NodeDefinition = { op: exportData.op };
       if (exportData.args !== undefined) {
         // Reject executable/non-JSON arguments rather than allowing JSON.stringify

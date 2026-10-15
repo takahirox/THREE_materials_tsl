@@ -1,3 +1,4 @@
+import { resolveReferenceNode, isReferenceNodeOp } from './referenceNodes.js';
 import * as TSL from 'three/tsl';
 import { resolveShadingNode, isShadingNodeOp } from './shadingNodes.js';
 import { resolveDataNode, isDataNodeOp } from './dataNodes.js';
@@ -36,6 +37,7 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
   const overrides = options.overrides ?? {};
   return (op: string, _args?: JsonValue, links?: Record<string, unknown>) => {
     if (Object.prototype.hasOwnProperty.call(overrides, op)) return overrides[op];
+    if (isReferenceNodeOp(op)) return resolveReferenceNode(op, _args, links);
     if (isShadingNodeOp(op)) return resolveShadingNode(op, _args, links);
     if (isDataNodeOp(op)) return resolveDataNode(op, _args, links);
     if (isTextureNodeOp(op)) return resolveTextureNode(op, _args, links);

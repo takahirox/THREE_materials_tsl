@@ -58,6 +58,12 @@ including native and emulated packed-integer paths. It checks invalid variants a
 atomic ordinary-material fallback; see the [shading audit](../../docs/shading-node-support.md).
 Node-side checks do not establish GPU pixel correctness.
 
+The [reference-node suite](test/references.test.js) checks every supported ordinary
+MaterialNode/ModelNode scope and typed current-material property through two real
+round trips, GLSL generation and native NodeFrame updates, including shared
+materials, GLTFLoader clones, object transforms and atomic fallback. See the
+[four-class audit and exact binding boundaries](../../docs/reference-node-support.md).
+
 For all required checks from the repository root:
 
 ```sh
