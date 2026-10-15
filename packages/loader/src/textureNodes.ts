@@ -1,7 +1,5 @@
 import { Texture, NoColorSpace, SRGBColorSpace, LinearSRGBColorSpace } from 'three';
-import TextureNode from 'three/src/nodes/accessors/TextureNode.js';
-import TextureSizeNode from 'three/src/nodes/accessors/TextureSizeNode.js';
-import MaxMipLevelNode from 'three/src/nodes/utils/MaxMipLevelNode.js';
+import { TextureNode, TextureSizeNode, MaxMipLevelNode } from 'three/webgpu';
 import { Texture as SourceTexture } from 'three/src/textures/Texture.js';
 import type { JsonValue } from './THREEMaterialsTSLLoaderPlugin.js';
 

@@ -109,6 +109,31 @@ Runtime rendering still depends on Three.js's own node
 semantics and renderer support. `three.revision` is optional diagnostic metadata;
 it does not select a migration or gate loading.
 
+### Surface, color/output and bit/packing nodes
+
+The paired defaults also support `NormalMapNode`, `BumpMapNode`, `VertexColorNode`,
+`ColorSpaceNode`, `ToneMappingNode`, `RenderOutputNode`, `BitcastNode`, `BitcountNode`,
+`PackFloatNode`, `UnpackFloatNode` and `Packed4x8IntegerNode`. This includes tangent
+and object-space normals, optional scales, tangent RG/GA unpacking, vertex color
+index 0 (or omitted), built-in color spaces/context sentinels, seven standard tone
+selections, dynamic exposure, numeric bitcasts/bitcounts, float packing layouts
+and all eight signed/unsigned packed-integer methods.
+
+See the [shading-node audit](../../docs/shading-node-support.md) for exact fields,
+type/layout domains, tests and deferred variants. Higher vertex-color indices
+need geometry adapters because native glTF tools rename their attributes. Custom
+color-space/tone-library registrations, object-space packed normals, float16/4x8
+packing and float-to-float bitcasts are unsupported by default and fail export.
+Malformed imports retain the complete ordinary material. Renderer-dependent type
+inference outside these defaults needs paired adapters.
+
+Color/output nodes preserve context-dependent values; they do not serialize or
+change renderer/pipeline settings. Null RenderOutput settings inherit context;
+omitted settings retain r186's distinct behavior. Consumers using explicit final
+output conversion must arrange one final transform (for a manually transformed
+RenderPipeline, set `outputColorTransform = false`). The plugins add no output
+transform. Execution remains entirely Three.js-owned.
+
 ### Default 2D textures
 
 Ordinary `TextureNode` / `texture(myTexture)` works with the paired defaults,

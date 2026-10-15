@@ -1,6 +1,7 @@
 import type { JsonValue } from './types.js';
 import type { NodeExport } from './types.js';
 import { getSharedTSLNodeName } from './sharedNodes.js';
+import { serializeShadingNode } from './shadingNodes.js';
 import { serializeDataNode } from './dataNodes.js';
 import { serializeTextureNode, isTextureNodeOp } from './textureNodes.js';
 import { validateNodeLinks } from './nodeLinks.js';
@@ -100,6 +101,8 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
 
     const textureNode = serializeTextureNode(node);
     if (textureNode) return textureNode;
+    const shadingNode = serializeShadingNode(node);
+    if (shadingNode) return shadingNode;
     const dataNode = serializeDataNode(node);
     if (dataNode) return dataNode;
 

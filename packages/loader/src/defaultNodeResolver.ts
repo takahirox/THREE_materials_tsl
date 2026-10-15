@@ -1,11 +1,10 @@
 import * as TSL from 'three/tsl';
+import { resolveShadingNode, isShadingNodeOp } from './shadingNodes.js';
 import { resolveDataNode, isDataNodeOp } from './dataNodes.js';
 import { resolveTextureNode, isTextureNodeOp } from './textureNodes.js';
-import { ConstNode } from 'three/webgpu';
-import AttributeNode from 'three/src/nodes/core/AttributeNode.js';
-import UniformNode from 'three/src/nodes/core/UniformNode.js';
-import MathNode from 'three/src/nodes/math/MathNode.js';
-import OperatorNode from 'three/src/nodes/math/OperatorNode.js';
+// Keep reconstructed nodes on the same TSL stack as three/tsl. Mixing source
+// and bundled node modules breaks derivative and function-backed shader setup.
+import { ConstNode, AttributeNode, UniformNode, MathNode, OperatorNode } from 'three/webgpu';
 import type { MathNodeMethod } from 'three/src/nodes/math/MathNode.js';
 import type { OperatorNodeOp } from 'three/src/nodes/math/OperatorNode.js';
 
@@ -37,6 +36,7 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
   const overrides = options.overrides ?? {};
   return (op: string, _args?: JsonValue, links?: Record<string, unknown>) => {
     if (Object.prototype.hasOwnProperty.call(overrides, op)) return overrides[op];
+    if (isShadingNodeOp(op)) return resolveShadingNode(op, _args, links);
     if (isDataNodeOp(op)) return resolveDataNode(op, _args, links);
     if (isTextureNodeOp(op)) return resolveTextureNode(op, _args, links);
     if (op === 'ConstNode' || op === 'UniformNode') {
