@@ -64,6 +64,13 @@ round trips, GLSL generation and native NodeFrame updates, including shared
 materials, GLTFLoader clones, object transforms and atomic fallback. See the
 [four-class audit and exact binding boundaries](../../docs/reference-node-support.md).
 
+The [geometry-node suite](test/geometry.test.js) covers ordinary index, front-facing,
+screen and viewport-depth instances through two real round trips, GLSL/WGSL
+shader flow and native screen/camera updates. It checks singleton identity,
+shared links, exact scope/stage restrictions and complete material fallback.
+See the [scope audit and deferrals](../../docs/geometry-node-support.md).
+These checks do not establish GPU pixel behavior.
+
 For all required checks from the repository root:
 
 ```sh

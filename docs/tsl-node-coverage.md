@@ -3,7 +3,8 @@
 This is the default-plugin coverage inventory for [Issue #15](https://github.com/takahirox/THREE_materials_tsl/issues/15),
 updated with [Issue #17](https://github.com/takahirox/THREE_materials_tsl/issues/17) 2D texture support,
 [Issue #19](https://github.com/takahirox/THREE_materials_tsl/issues/19) shading and bit/packing nodes,
-and [Issue #21](https://github.com/takahirox/THREE_materials_tsl/issues/21) dynamic material/model references.
+[Issue #21](https://github.com/takahirox/THREE_materials_tsl/issues/21) dynamic material/model references,
+and [Issue #23](https://github.com/takahirox/THREE_materials_tsl/issues/23) geometry/screen/depth scopes.
 It describes **Draft v2.0 only** and does not change the extension schema or promise universal TSL portability.
 
 ## Reference and audit method
@@ -57,7 +58,8 @@ with an adapter path or future decision recorded in each row.
 | Per-instance ranges | **Deferred/unsupported** | `RangeNode` | Per-instance generated range data needs geometry/instancing resource design and paired adapters; not ordinary constructor data. |
 | Statements and scope | **Deferred/unsupported** | `AssignNode`, `BypassNode`, `StackNode`, `PropertyNode`, `ParameterNode`, `LoopNode`, `ContextNode`, `OverrideContextNode`, `IsolateNode`, `SampleNode`, `FunctionOverloadingNode` | Statement ordering, lexical scope, builder caches/context overrides, loop callbacks and function dispatch cannot be inferred from arbitrary links. Exact shared PropertyNode exports remain supported. Adapters can encode a small data-only, predefined operation; a general solution needs an explicit scope/control-flow design and cannot embed closures or shader code. Do not treat these as generic expression nodes. |
 | Structures and render outputs | **Deferred/unsupported** | `StructNode`, `StructTypeNode`, `MemberNode`, `OutputStructNode`, `MRTNode` | Struct layouts, named member types and multi-render-target attachment semantics require additional agreement beyond ordinary material entrypoints; upstream child serialization is insufficient. Paired adapters can reconstruct fixed consumer-known structs; discuss schema-neutral layout/attachment conventions before general defaults. |
-| Renderer/geometry builtins | **Requires a custom adapter** | `BuiltinNode`, `IndexNode`, `UniformGroupNode`, `ScreenNode`, `ViewportDepthNode`, `FrontFacingNode`, `PointUVNode`, `VelocityNode`, `ClippingNode` | Only exact shared exports have portable names in the current registry. Arbitrary scopes, group update lifetimes, previous-frame data and clipping/viewport context are not fully serialized. Adapters can select predefined scopes in an agreed renderer context; specify the allowed scopes/stages and lifecycle before supporting ordinary instances. |
+| Geometry/screen/depth scopes | **Supported subset (#23)** | `IndexNode`, `FrontFacingNode`, `ScreenNode`, `ViewportDepthNode` | Index vertex/instance/draw (draw is native WebGL only), ordinary front-facing on FrontSide/DoubleSide, screen coordinate/uv/size/viewport with live render updates, depth with no input and linearDepth with optional scalar-float input using the active camera. Compute-only index scopes, depthBase, BackSide front-facing material transport, foreign-camera/depth-texture bindings and app renderer ownership require adapters. Exact shared objects remain unchanged. See the [scope/stage audit, renderer limitations and deferral paths](geometry-node-support.md). |
+| Other renderer/geometry builtins | **Requires a custom adapter** | `BuiltinNode`, `UniformGroupNode`, `PointUVNode`, `VelocityNode`, `ClippingNode` | Only exact shared exports have portable names in the current registry. Arbitrary scopes, group update lifetimes, previous-frame data and clipping context are not fully serialized. Adapters can select predefined scopes in an agreed renderer context; specify allowed stages and lifecycle before supporting ordinary instances. |
 | Storage and compute | **Deferred/unsupported** | `StorageBufferNode`, `StorageTextureNode`, `StorageTexture3DNode`, `StorageArrayElementNode`, `ComputeBuiltinNode`, `ComputeNode`, `AtomicFunctionNode`, `BarrierNode`, `SubgroupFunctionNode`, `WorkgroupInfoNode`, `WorkgroupInfoElementNode` | glTF material graphs provide neither storage allocation/access modes nor dispatch, synchronization, workgroup/subgroup guarantees and compute scheduling. Shared compute identifiers can resolve by name but this does not make compute graphs renderable as mesh materials. An adapter only works with an external resource/scheduling contract; decide that contract separately, not via ad hoc material fields. |
 | Render targets, passes and environment resources | **Deferred/unsupported** | `PassNode`, `PassTextureNode`, `PassMultipleTextureNode`, `ToonOutlinePassNode`, `ViewportTextureNode`, `ViewportDepthTextureNode`, `ViewportSharedTextureNode`, `RTTNode`, `ReflectorNode`, `ReflectorBaseNode`, `CubeMapNode`, `PMREMNode` | These allocate or depend on renderer passes, cameras/scenes, generated textures, framebuffer history or environment preprocessing absent from ordinary glTF texture/accessor links. A consumer-specific adapter can bind preexisting resources; general portability needs resource ownership, scheduling and lifetime decisions outside this issue. |
 | Lighting nodes | **Deferred/unsupported** | `LightingNode`, `AnalyticLightNode`, `AmbientLightNode`, `DirectionalLightNode`, `HemisphereLightNode`, `PointLightNode`, `SpotLightNode`, `ProjectorLightNode`, `IESSpotLightNode`, `RectAreaLightNode`, `LightProbeNode`, `LightsNode`, `LightingContextNode`, `EnvironmentNode`, `BasicEnvironmentNode`, `IrradianceNode`, `AONode`, `BasicLightMapNode`, `ShadowBaseNode`, `ShadowNode`, `PointShadowNode` | Light/scene references, lighting models, shadow filtering and renderer-created resources need more than material links. glTF light extensions do not provide all of these semantics. A paired adapter can select consumer-known lighting behavior; first define light-reference and shadow-resource bindings and lifecycle. The plugins continue to let Three.js supply normal material lighting. |
@@ -130,7 +132,9 @@ Three.js serialize/deserialize where fields exist and records small explicit
 constructor fields where they do not. Issue #21 adds the
 [audited current-material/model subsets](reference-node-support.md), with binding
 validation against every prepared material clone and explicit Object3DNode
-deferral. Child discovery is checked against each
+deferral. Issue #23 adds the [geometry/screen/depth scope subset](geometry-node-support.md),
+with native renderer/camera updates and explicit compute/depth-write/BackSide
+deferrals. Child discovery is checked against each
 adapter; the graph writer owns traversal, sharing and cycle detection. No shader
 operation is reimplemented here. Names/types/components/interpolation settings
 are data with validated domains; constructors are explicitly imported, never
@@ -181,3 +185,6 @@ Issue #17's texture subset and actual check outcomes are recorded in the
 [texture audit and validation](texture-node-support.md#validation).
 Browser/WebGPU visual checks were not run. Node shader generation and integration
 tests do not compile GPU programs or validate rendered pixels.
+
+Issue #23 scope, stage, runtime-update tests and check results are recorded in the
+[geometry/screen/depth audit](geometry-node-support.md#failure-behavior-and-validation).

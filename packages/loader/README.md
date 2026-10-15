@@ -134,6 +134,34 @@ output conversion must arrange one final transform (for a manually transformed
 RenderPipeline, set `outputColorTransform = false`). The plugins add no output
 transform. Execution remains entirely Three.js-owned.
 
+### Geometry, screen and viewport depth
+
+The paired defaults support ordinary `IndexNode` (`vertex`, `instance`, `draw`),
+`FrontFacingNode`, `ScreenNode` (`coordinate`, `uv`, `size`, `viewport`) and
+`ViewportDepthNode` (`depth` without an input; `linearDepth` with an optional
+scalar-float `valueNode`). Index/screen/depth constructors require explicit valid
+scopes. Ordinary instances keep distinct identity; shared exported TSL objects
+keep their existing singleton identity and protections.
+
+Screen size/viewport uniforms update from the current renderer, DPR and render
+target through native Three.js render updates; dimensions are never frozen in
+file data. Coordinate/UV and depth expressions require fragment context. Depth
+uses the active render camera and live near/far uniforms; linked depth must
+belong to that camera and use native ordinary perspective/orthographic depth
+semantics. The plugins do not bind a foreign camera or configure depth modes.
+`draw` requires native WebGL draw-index support (multi-draw or the renderer's
+uniform fallback); r186 WebGPU does not implement it.
+
+Compute index scopes `invocationLocal`, `invocationSubgroup`, `subgroup` and
+viewport `depthBase` reads/writes are deferred pending dispatch/ordered-output
+adapters. Ordinary FrontFacingNode on BackSide materials fails export because
+native glTF drops that side setting; FrontSide/DoubleSide work. Ignored depth
+inputs, custom renderer/camera bindings, callbacks, invalid scopes and extra or
+broken links fail export; import failures retain the entire ordinary material.
+Framebuffer-depth textures, foreign-camera and logarithmic/reversed-depth
+conversion need explicit resource/encoding bindings. See the
+[exact four-class audit, stage/backend limitations and adapter paths](../../docs/geometry-node-support.md).
+
 ### Dynamic material and model references
 
 The paired defaults support ordinary `MaterialNode`, `ModelNode` and

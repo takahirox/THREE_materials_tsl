@@ -1,3 +1,4 @@
+import { validateGeometryMaterial } from './geometryNodes.js';
 import { validateReferenceMaterial, validateReferenceGeometry } from './referenceNodes.js';
 import { REVISION } from 'three';
 
@@ -155,6 +156,7 @@ export class THREEMaterialsTSLExporterPlugin {
       }
 
       validateReferenceMaterial(node as object, material);
+      validateGeometryMaterial(node as object, material);
       if (!this.materialNodes.has(material)) this.materialNodes.set(material, new Set());
       this.materialNodes.get(material)!.add(node as object);
       const nodeDef: NodeDefinition = { op: exportData.op };

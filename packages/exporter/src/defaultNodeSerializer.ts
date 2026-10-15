@@ -1,3 +1,4 @@
+import { serializeGeometryNode, isGeometryNodeOp } from './geometryNodes.js';
 import type { JsonValue } from './types.js';
 import type { NodeExport } from './types.js';
 import { getSharedTSLNodeName } from './sharedNodes.js';
@@ -95,11 +96,13 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
     for (const [property, value] of Object.entries(node)) {
       if (typeof value === 'function' ||
           (['updateType', 'updateBeforeType', 'updateAfterType'].includes(property) && value !== 'none' &&
-            !(property === 'updateType' && (isTextureNodeOp(nodeType) || isReferenceNodeOp(nodeType))))) {
+            !(property === 'updateType' && (isTextureNodeOp(nodeType) || isReferenceNodeOp(nodeType) || isGeometryNodeOp(nodeType))))) {
         throw new Error(`Unsupported dynamic property "${property}"; supply explicit adapters`);
       }
     }
 
+    const geometryNode = serializeGeometryNode(node);
+    if (geometryNode) return geometryNode;
     const referenceNode = serializeReferenceNode(node);
     if (referenceNode) return referenceNode;
     const textureNode = serializeTextureNode(node);
