@@ -1,6 +1,7 @@
 import { beforeAll, afterAll, expect, it, vi } from 'vitest';
 import { BoxGeometry, Mesh, Scene, PerspectiveCamera, Color, Vector2, Vector3, Float32BufferAttribute,
-  Texture, SRGBColorSpace, ObjectSpaceNormalMap, RGFormat } from 'three';
+  Texture, SRGBColorSpace, ObjectSpaceNormalMap, RGFormat, RepeatWrapping,
+  MirroredRepeatWrapping, NearestFilter } from 'three';
 import { createCanvas, CanvasElement, Image, ImageData, loadImage } from '@napi-rs/canvas';
 import { MaterialNode, ModelNode, Object3DNode, MaterialReferenceNode, MeshPhysicalNodeMaterial,
   MeshBasicNodeMaterial, NodeFrame, GLSLNodeBuilder, StandardNodeLibrary } from 'three/webgpu';
@@ -128,6 +129,65 @@ it('rejects disabled iridescence range state used by MaterialNode', async () => 
   const source = configured(); source.iridescence = 0;
   source.colorNode = new MaterialNode('iridescenceThickness');
   await expect(exportScene(sceneWith(source))).rejects.toThrow(/reference/);
+});
+
+function metalRoughScene(shared = false) {
+  const source = configured();
+  const canvas = createCanvas(2, 2); Object.defineProperty(canvas, 'data', { value: undefined });
+  source.metalnessMap = new Texture(canvas);
+  source.roughnessMap = shared ? source.metalnessMap : new Texture(canvas);
+  const scene = sceneWith(source); const geometry = scene.children[0].geometry;
+  geometry.setAttribute('uv1', new Float32BufferAttribute(
+    Array.from(geometry.attributes.uv.array, (v) => v * 0.5 + 0.25), 2));
+  return { source, scene };
+}
+
+it.each([
+  ['channel', (t) => { t.channel = 1; }],
+  ['offset', (t) => { t.offset.set(0.25, 0); }],
+  ['repeat', (t) => { t.repeat.set(2, 3); }],
+  ['rotation', (t) => { t.rotation = 0.5; }],
+  ['wrapS', (t) => { t.wrapS = RepeatWrapping; }],
+  ['wrapT', (t) => { t.wrapT = MirroredRepeatWrapping; }],
+  ['magFilter', (t) => { t.magFilter = NearestFilter; }],
+  ['minFilter', (t) => { t.minFilter = NearestFilter; }],
+  ['channel', (t) => { t.channel = 1; t.offset.set(0.25, 0); }]
+])('rejects roughness MaterialNode when native map packing changes %s', async (property, configure) => {
+  const { source, scene } = metalRoughScene(); configure(source.roughnessMap);
+  // Establish the native loss independently of the TSL graph: both maps use
+  // metalnessMap's sampling after packing, despite separate authored settings.
+  const ordinary = meshes((await load(await exportScene(scene), [], false)).scene)[0];
+  expect(snapshot(ordinary.material.roughnessMap[property])).toEqual(snapshot(source.metalnessMap[property]));
+  expect(snapshot(ordinary.material.roughnessMap[property])).not.toEqual(snapshot(source.roughnessMap[property]));
+  expect(ordinary.geometry.attributes.uv1.array).toEqual(scene.children[0].geometry.attributes.uv1.array);
+  source.roughnessNode = new MaterialNode('roughness');
+  await expect(exportScene(scene)).rejects.toThrow(/roughnessMap.*metalnessMap.*sampling/);
+});
+
+it.each([false, true])('preserves matching metal/rough sampling through two round trips (shared texture: %s)', async (shared) => {
+  const { source, scene } = metalRoughScene(shared);
+  for (const texture of [source.metalnessMap, source.roughnessMap]) {
+    texture.channel = 1; texture.offset.set(0.25, 0.125); texture.repeat.set(2, 2); texture.rotation = 0.5;
+    texture.wrapS = RepeatWrapping; texture.wrapT = MirroredRepeatWrapping;
+    texture.magFilter = NearestFilter; texture.minFilter = NearestFilter;
+  }
+  source.roughnessNode = new MaterialNode('roughness'); source.metalnessNode = new MaterialNode('metalness');
+  let current = scene;
+  for (let round = 0; round < 2; round++) {
+    const errors = []; const gltf = await load(await exportScene(current), errors);
+    expect(errors).toEqual([]);
+    const mesh = meshes(gltf.scene)[0]; const material = mesh.material;
+    expect(material.isNodeMaterial).toBe(true);
+    for (const scope of ['roughness', 'metalness']) {
+      expect(material[`${scope}Node`]).toBeInstanceOf(MaterialNode);
+      expect(material[`${scope}Node`].scope).toBe(scope);
+      for (const property of ['channel', 'offset', 'repeat', 'rotation', 'wrapS', 'wrapT', 'magFilter', 'minFilter']) {
+        expect(snapshot(material[`${scope}Map`][property])).toEqual(snapshot(source[`${scope}Map`][property]));
+      }
+    }
+    expect(mesh.geometry.attributes.uv1.array).toEqual(scene.children[0].geometry.attributes.uv1.array);
+    current = gltf.scene;
+  }
 });
 
 it.each([0, 1])('preserves or rejects the anisotropy map UV channel %s without retargeting', async (channel) => {

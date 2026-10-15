@@ -171,6 +171,11 @@ custom groups/callbacks and unsupported scopes also require adapters.
 MaterialNode bump-only/object-space/packed normals and separate opacity alphaMap
 bindings are rejected because native glTF cannot restore their setup state;
 ordinary map transforms must satisfy the existing glTF/KHR fallback constraints.
+MaterialNode `roughness` requires `roughnessMap` and `metalnessMap`, when both
+exist, to match UV channel, offset, repeat, rotation, wrapS/wrapT and min/mag
+filters at export. Native r186 packing uses metalnessMap's sampling for both
+maps; the loader cannot recover separate settings lost during packing.
+Incompatible combinations require paired consumer adapters.
 Export also rejects references whose initial values native glTF would drop or
 normalize: for example nonzero alphaTest with transparency, nondefault disabled
 extension properties, and sheen strengths other than 0 or 1. Normal-scale

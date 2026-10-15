@@ -130,6 +130,10 @@ custom groups/callbacks and unsupported scopes also require adapters.
 MaterialNode bump-only/object-space/packed normals and separate opacity alphaMap
 bindings are rejected because native glTF cannot restore their setup state;
 ordinary map transforms must satisfy the existing glTF/KHR fallback constraints.
+MaterialNode `roughness` requires `roughnessMap` and `metalnessMap`, when both
+exist, to match UV channel, offset, repeat, rotation, wrapS/wrapT and min/mag
+filters. Native r186 packing uses metalnessMap's sampling for both maps;
+incompatible combinations fail export and require paired consumer adapters.
 MaterialNode anisotropy maps must use UV channel 0 because native r186 export
 omits their texture-coordinate selector; other channels require paired adapters.
 Export also rejects references whose initial values native glTF would drop or

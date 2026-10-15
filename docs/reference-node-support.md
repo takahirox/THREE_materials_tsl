@@ -137,6 +137,18 @@ when a map exists: native r186 export omits this texture's `texCoord`, so anothe
 UV channel would silently become channel 0 on import. Other channels need paired
 consumer adapters with a transport path that preserves the selector.
 
+For MaterialNode's `roughness` scope, when both `roughnessMap` and `metalnessMap`
+exist, they must match `channel`, `offset`, `repeat`, `rotation`, `wrapS`, `wrapT`,
+`minFilter` and `magFilter`. Native r186 packing copies metalnessMap's transform,
+UV channel and sampler to the combined texture. Individually representable maps
+with different sampling therefore fail export instead of silently changing the
+roughness lookup. Shared textures and distinct textures with matching settings
+are supported. A lone roughness map keeps its own sampling; the `metalness` scope
+already uses the packing source's sampling and needs no extra restriction.
+Separate roughness/metalness sampling requires paired consumer adapters with a
+transport path preserving both lookups; the loader cannot infer settings lost
+in a packed glTF texture.
+
 Unrelated material properties are not subject to these reference checks. For
 example a roughness reference does not constrain sheen strength. For state
 outside this subset, use paired consumer adapters with an explicit material-state
@@ -197,8 +209,11 @@ custom callbacks/groups, private graph attachments, broken references and
 whole-material fallback. Regression cases use distinct UV sets to detect
 anisotropy-map retargeting and malformed `normalTexture.scale` values to verify
 atomic fallback across shared materials, primitive clones and the material cache,
-before any `onApplied` callback. These are CPU tests; browser/WebGPU visual checks are
-optional and were not run. Shader generation does not compile GPU programs or
+before any `onApplied` callback. Metal/rough packing regressions demonstrate native
+loss for differing UV channels, offsets, repeats, rotation and all four wrap/filter
+settings before requiring export rejection; shared and distinct textures with
+matching nondefault sampling survive two round trips. These are CPU tests;
+browser/WebGPU visual checks are optional and were not run. Shader generation does not compile GPU programs or
 establish pixel correctness.
 
 Executed on 2026-10-15:
@@ -208,7 +223,7 @@ Executed on 2026-10-15:
 | `npm --prefix packages/loader ci` | Passed |
 | `npm --prefix packages/exporter ci` | Passed |
 | `npm --prefix packages/demo ci` | Passed |
-| `npm --prefix packages/demo test` | Passed: 602 tests in 5 files, including 162 reference-node cases |
+| `npm --prefix packages/demo test` | Passed: 613 tests in 5 files, including 173 reference-node cases |
 | `npm --prefix packages/loader run build` | Passed |
 | `npm --prefix packages/exporter run build` | Passed |
 | `npm --prefix packages/demo run typecheck` | Passed |

@@ -108,6 +108,18 @@ export function validateReferenceMaterial(value: object, material: object) {
   const node = value as Record<string, unknown>;
   const target = material as Record<string, unknown>;
   if (node.type === 'MaterialNode') {
+    if (node.scope === 'roughness' && target.roughnessMap && target.metalnessMap) {
+      // Native r186 packing copies metalnessMap's UV transform and sampler to
+      // both channels. Per-texture glTF compatibility alone cannot preserve a
+      // roughness lookup authored with different sampling settings.
+      const roughness = target.roughnessMap as import('three').Texture;
+      const metalness = target.metalnessMap as import('three').Texture;
+      if (!(['channel', 'wrapS', 'wrapT', 'magFilter', 'minFilter', 'rotation'] as const).every(
+        (key) => roughness[key] === metalness[key]) ||
+        !roughness.offset.equals(metalness.offset) || !roughness.repeat.equals(metalness.repeat)) {
+        throw new Error('Unsupported roughnessMap/metalnessMap sampling mismatch for MaterialNode roughness; supply paired adapters');
+      }
+    }
     // These native setup branches depend on ordinary state glTF does not
     // reconstruct. Never turn a bump/packed/object-space normal into a different
     // normal lookup, or silently drop the separate alpha-map reference.
