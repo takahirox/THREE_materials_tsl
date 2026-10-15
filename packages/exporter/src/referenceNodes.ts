@@ -121,6 +121,11 @@ export function validateReferenceMaterial(value: object, material: object) {
     };
     const gate = gatedMaps[node.scope as string];
     if (gate && target[gate[0]] === 0) check(!target[gate[1]]);
+    if (node.scope === 'anisotropy' && target.anisotropyMap) {
+      // Native r186 GLTFExporter omits this texture's texCoord, so import
+      // always selects UV set 0 even when another set exists on the mesh.
+      check((target.anisotropyMap as { channel: number }).channel === 0);
+    }
     if (node.scope === 'normal') {
       check(target.normalMap || !target.bumpMap);
       if (target.normalMap) {

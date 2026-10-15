@@ -130,6 +130,8 @@ custom groups/callbacks and unsupported scopes also require adapters.
 MaterialNode bump-only/object-space/packed normals and separate opacity alphaMap
 bindings are rejected because native glTF cannot restore their setup state;
 ordinary map transforms must satisfy the existing glTF/KHR fallback constraints.
+MaterialNode anisotropy maps must use UV channel 0 because native r186 export
+omits their texture-coordinate selector; other channels require paired adapters.
 Export also rejects references whose initial values native glTF would drop or
 normalize: for example nonzero alphaTest with transparency, nondefault disabled
 extension properties, and sheen strengths other than 0 or 1. Normal-scale

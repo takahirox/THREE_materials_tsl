@@ -132,6 +132,10 @@ that cannot preserve its value on all those meshes fails export. MaterialNode's
 MaterialNode also rejects maps used by the selected scope when their enabling
 clearcoat/sheen/anisotropy/iridescence/transmission value is zero, because native
 glTF would omit the texture dependency.
+MaterialNode's `anisotropy` scope also requires `anisotropyMap.channel === 0`
+when a map exists: native r186 export omits this texture's `texCoord`, so another
+UV channel would silently become channel 0 on import. Other channels need paired
+consumer adapters with a transport path that preserves the selector.
 
 Unrelated material properties are not subject to these reference checks. For
 example a roughness reference does not constrain sheen strength. For state
@@ -190,7 +194,10 @@ are compared on both round trips before applying runtime edits; negative probes
 also demonstrate actual native value loss before asserting export rejection.
 Invalid exports and malformed files cover unsafe selectors, external bindings, unsupported scopes, wrong types,
 custom callbacks/groups, private graph attachments, broken references and
-whole-material fallback. These are CPU tests; browser/WebGPU visual checks are
+whole-material fallback. Regression cases use distinct UV sets to detect
+anisotropy-map retargeting and malformed `normalTexture.scale` values to verify
+atomic fallback across shared materials, primitive clones and the material cache,
+before any `onApplied` callback. These are CPU tests; browser/WebGPU visual checks are
 optional and were not run. Shader generation does not compile GPU programs or
 establish pixel correctness.
 
@@ -201,7 +208,7 @@ Executed on 2026-10-15:
 | `npm --prefix packages/loader ci` | Passed |
 | `npm --prefix packages/exporter ci` | Passed |
 | `npm --prefix packages/demo ci` | Passed |
-| `npm --prefix packages/demo test` | Passed: 597 tests in 5 files, including 157 reference-node cases |
+| `npm --prefix packages/demo test` | Passed: 602 tests in 5 files, including 162 reference-node cases |
 | `npm --prefix packages/loader run build` | Passed |
 | `npm --prefix packages/exporter run build` | Passed |
 | `npm --prefix packages/demo run typecheck` | Passed |

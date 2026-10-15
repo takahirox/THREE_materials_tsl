@@ -64,7 +64,8 @@ export function validateReferenceMaterial(value: object, material: object) {
       }
     }
   }
-  const properties = node.type === 'MaterialNode' ? materialScopes[node.scope as string] :
+  const properties = node.type === 'MaterialNode' ?
+    (node.scope === 'normal' && target.normalMap ? ['normalScale'] : materialScopes[node.scope as string]) :
     node.type === 'MaterialReferenceNode' ? [node.property as string] : [];
   for (const property of properties) {
     const v = target[property];

@@ -130,6 +130,39 @@ it('rejects disabled iridescence range state used by MaterialNode', async () => 
   await expect(exportScene(sceneWith(source))).rejects.toThrow(/reference/);
 });
 
+it.each([0, 1])('preserves or rejects the anisotropy map UV channel %s without retargeting', async (channel) => {
+  const source = configured();
+  const canvas = createCanvas(2, 2); Object.defineProperty(canvas, 'data', { value: undefined });
+  source.anisotropyMap = new Texture(canvas); source.anisotropyMap.channel = channel;
+  const scene = sceneWith(source); const geometry = scene.children[0].geometry;
+  geometry.setAttribute('uv1', new Float32BufferAttribute(
+    Array.from(geometry.attributes.uv.array, (v) => v * 0.5 + 0.25), 2));
+  expect(geometry.attributes.uv1.array).not.toEqual(geometry.attributes.uv.array);
+  if (channel !== 0) {
+    // Native r186 export omits texCoord for this extension's texture, even
+    // though the geometry carries a distinct second UV set.
+    const ordinary = meshes((await load(await exportScene(scene), [], false)).scene)[0];
+    expect(ordinary.geometry.attributes.uv1.array).toEqual(geometry.attributes.uv1.array);
+    expect(ordinary.material.anisotropyMap.channel).toBe(0);
+    source.colorNode = new MaterialNode('anisotropy');
+    await expect(exportScene(scene)).rejects.toThrow(/reference/);
+    return;
+  }
+  source.colorNode = new MaterialNode('anisotropy');
+  let current = scene;
+  for (let round = 0; round < 2; round++) {
+    const errors = []; const gltf = await load(await exportScene(current), errors);
+    expect(errors).toEqual([]);
+    const mesh = meshes(gltf.scene)[0];
+    expect(mesh.material.isNodeMaterial).toBe(true);
+    expect(mesh.material.colorNode.scope).toBe('anisotropy');
+    expect(mesh.material.anisotropyMap.channel).toBe(channel);
+    expect(mesh.geometry.attributes.uv.array).toEqual(geometry.attributes.uv.array);
+    expect(mesh.geometry.attributes.uv1.array).toEqual(geometry.attributes.uv1.array);
+    current = gltf.scene;
+  }
+});
+
 it.each([
   ['clearcoat', 'clearcoatMap'], ['clearcoatRoughness', 'clearcoatRoughnessMap'],
   ['clearcoatNormal', 'clearcoatNormalMap'], ['sheen', 'sheenColorMap'],
@@ -297,6 +330,37 @@ it('rebinds shared material references to GLTFLoader clones and preserves clone 
     a.material.normalScale.copy(originalA); c.material.normalScale.copy(originalC);
     json = await exportScene(gltf.scene);
   }
+});
+
+it.each(['invalid', '2', null])('atomically retains ordinary materials and clones for malformed normal scale %s', async (scale) => {
+  const source = configured(); source.colorNode = new MaterialNode('normal');
+  source.emissiveNode = source.colorNode; source.roughnessNode = new MaterialNode('roughness');
+  const canvas = createCanvas(2, 2); Object.defineProperty(canvas, 'data', { value: undefined });
+  source.normalMap = new Texture(canvas);
+  const scene = sceneWith(source, source, source);
+  const geometry = scene.children[2].geometry; geometry.deleteAttribute('normal');
+  geometry.setAttribute('color', new Float32BufferAttribute(new Float32Array(geometry.attributes.position.count * 3).fill(0.5), 3));
+  const json = await exportScene(scene); json.materials[0].normalTexture.scale = scale;
+  const ordinary = await load(json, [], false);
+  const errors = [], applied = vi.fn(); const loader = new GLTFLoader();
+  loader.register((parser) => new THREEMaterialsTSLLoaderPlugin(parser, {
+    nodeResolver: createDefaultNodeResolver(), onError: (e) => errors.push(e), onApplied: applied
+  }));
+  const gltf = await loader.parseAsync(JSON.stringify(json), '');
+  expect(errors).toHaveLength(1); expect(applied).not.toHaveBeenCalled();
+  const actual = meshes(gltf.scene), expected = meshes(ordinary.scene);
+  expect(actual[0].material).toBe(actual[1].material);
+  expect(actual[2].material).not.toBe(actual[0].material);
+  for (let i = 0; i < actual.length; i++) {
+    const m = actual[i].material, fallback = expected[i].material;
+    expect(m.isNodeMaterial).not.toBe(true);
+    for (const slot of ['colorNode', 'emissiveNode', 'roughnessNode']) expect(m[slot]).toBeUndefined();
+    for (const property of ['color', 'roughness', 'normalScale', 'transmission', 'sheenColor', 'flatShading', 'vertexColors']) {
+      expect(snapshot(m[property])).toEqual(snapshot(fallback[property]));
+    }
+    expect(m.normalMap.isTexture).toBe(true);
+  }
+  expect((await gltf.parser.getDependency('material', 0)).isNodeMaterial).not.toBe(true);
 });
 
 it('preserves base state, composed shared inputs, default Infinity and GLB encoding', async () => {
