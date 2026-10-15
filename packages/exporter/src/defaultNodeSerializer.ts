@@ -2,6 +2,7 @@ import type { JsonValue } from './types.js';
 import type { NodeExport } from './types.js';
 import { getSharedTSLNodeName } from './sharedNodes.js';
 import { serializeDataNode } from './dataNodes.js';
+import { serializeTextureNode, isTextureNodeOp } from './textureNodes.js';
 import { validateNodeLinks } from './nodeLinks.js';
 import { objectGroup } from 'three/tsl';
 import type { Node } from 'three/webgpu';
@@ -91,11 +92,14 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
     // instances with app callbacks cannot be represented by data-only glTF.
     for (const [property, value] of Object.entries(node)) {
       if (typeof value === 'function' ||
-          (['updateType', 'updateBeforeType', 'updateAfterType'].includes(property) && value !== 'none')) {
+          (['updateType', 'updateBeforeType', 'updateAfterType'].includes(property) && value !== 'none' &&
+            !(property === 'updateType' && isTextureNodeOp(nodeType)))) {
         throw new Error(`Unsupported dynamic property "${property}"; supply explicit adapters`);
       }
     }
 
+    const textureNode = serializeTextureNode(node);
+    if (textureNode) return textureNode;
     const dataNode = serializeDataNode(node);
     if (dataNode) return dataNode;
 

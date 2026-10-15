@@ -26,8 +26,11 @@ The Vitest suite imports both plugins' source through the same aliases and
 Three.js deduplication as the demo. It uses real r186 GLTFLoader/GLTFExporter
 round trips with embedded buffers. Node provides the test environment; small
 FileReader/ProgressEvent shims cover buffer I/O, so a browser/GPU is unnecessary.
-Texture binding tests inject a Texture source rather than decode images. Tests
-exercise Three.js material-reference updates, not GPU pixel output.
+The original texture binding tests inject a Texture source. The additional
+`textures.test.js` suite uses the demo-only `@napi-rs/canvas` development dependency
+for real PNG encoding/decoding through the native writer/parser, including GLB
+image bufferViews and repeated image/graph round trips. Tests exercise Three.js
+material-reference updates and CPU image data, not GPU pixel output.
 
 The tested versions are `three@0.186.1` and `@types/three@0.186.0`. See the
 [r186 validation report](../../docs/three-r186-validation.md) for Issue #11's
@@ -44,7 +47,9 @@ The [r186 coverage matrix](../../docs/tsl-node-coverage.md)
 records the full class/shared-object audit. New expression families have repeated
 round-trip and real Three.js GLSL builder tests, including fluent TSL graphs,
 shared inputs, variable/interpolation fields, arrays, conditional selection and
-rotation. These checks do not compile GPU programs or validate pixels.
+rotation. These checks do not compile GPU programs or validate rendered pixels. See the
+[2D texture audit and subset](../../docs/texture-node-support.md) for supported
+sampling/query nodes, ordinary fallback transform restrictions and texture tests.
 
 For all required checks from the repository root:
 

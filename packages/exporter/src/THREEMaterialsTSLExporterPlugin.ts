@@ -3,6 +3,7 @@ import { REVISION } from 'three';
 import type { BufferAttribute, Material, Texture } from 'three';
 import type { GLTFWriter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import type { LinkDefinition, LinkValue, NodeDefinition, NodeExport } from './types.js';
+import { validateTextureFallback } from './textureNodes.js';
 
 type LinkTarget =
   | LinkDefinition
@@ -67,6 +68,7 @@ export class THREEMaterialsTSLExporterPlugin {
     if (typeof this.options.nodeSerializer !== 'function') throw new Error('nodeSerializer is required');
 
     const serialized = await this.serializeGraph(entrypoints);
+    if (Object.values(serialized.nodes).some((node) => node.op === 'TextureNode')) validateTextureFallback(material);
 
     const extension = {
       version: '2.0',

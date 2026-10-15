@@ -58,15 +58,36 @@ and Euler order survive repeated round trips.
 
 See the [coverage matrix](../../docs/tsl-node-coverage.md) for the complete audited
 class/family and shared-object inventories, tested boundaries, deferred cases,
-reasons and adapter paths. Texture/buffer node classes, closures, code-backed
-nodes and renderer resources are outside the default allowlist. Some can use
-paired adapters; others need additional resource/control-flow design. Ordinary
+reasons and adapter paths. Advanced texture variants, buffer node classes,
+closures, code-backed nodes and renderer resources are outside the default
+allowlist. Some can use paired adapters; others need additional resource/control-flow design. Ordinary
 nodes with app-installed callbacks, uniforms with non-default groups, subclasses
 inheriting built-in operation IDs, and unrepresentable inputs fail explicitly.
 Custom code stays consumer-supplied; the file cannot carry executable code.
 The existing peer dependency range `three >=0.182.0` is retained;
 this validation does not establish compatibility with every release in that
 range. Support across Three.js revisions is not guaranteed.
+
+### Default 2D textures
+
+Ordinary `TextureNode` / `texture(myTexture)` works with the paired defaults,
+including image resources, shared graph textures, UV channels/default or explicit
+UVs, transform parameters and matrix-update behavior, color space, glTF samplers,
+explicit mip-generation/anisotropy, level/bias, texel offsets and sample/fetch mode.
+`TextureSizeNode` and `MaxMipLevelNode` are also supported. Resources are ordinary
+image-backed RGBA8 `Texture` objects; image `flipY` is baked by the writer and
+normalized to false on import. TSL textures share resources within the graph and
+stay separate from ordinary material-slot clones to preserve fallback state.
+
+See the [2D texture support and r186 audit](../../docs/texture-node-support.md)
+for the exact encoding, tests and limitations. Ordinary fallback map transforms
+must be representable by native glTF/KHR processing: use zero center and uniform
+scale when rotating, or a matching fixed KHR matrix. Incompatible fallback map
+transforms fail on export; TSL-only textures retain arbitrary matrices/centers.
+Depth/comparison/gather/gradients, external live references, advanced texture
+classes, renderer resources, manual mip chains, premultiplied uploads, custom
+texture metadata and callbacks require paired adapters or separate resource
+design. Failed graph reconstruction retains the entire ordinary material.
 
 Provide paired serializer/resolver overrides for custom nodes:
 

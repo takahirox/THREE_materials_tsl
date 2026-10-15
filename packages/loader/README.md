@@ -101,13 +101,34 @@ after construction. Factories/constructors receive array arguments positionally
 and other arguments as one value. Custom code is consumer-supplied, never read
 from the glTF file.
 
-Texture/buffer node classes, closures, code-backed nodes and renderer resources
-are outside the default allowlist. Some can use paired exporter/resolver adapters;
-others need resource or control-flow design work (see the matrix). Custom code
+Advanced texture variants, buffer node classes, closures, code-backed nodes and
+renderer resources are outside the default allowlist. Some can use paired
+exporter/resolver adapters; others need resource or control-flow design work (see the matrix). Custom code
 must remain consumer-supplied; the file cannot carry executable code.
 Runtime rendering still depends on Three.js's own node
 semantics and renderer support. `three.revision` is optional diagnostic metadata;
 it does not select a migration or gate loading.
+
+### Default 2D textures
+
+Ordinary `TextureNode` / `texture(myTexture)` works with the paired defaults,
+including image resources, shared graph textures, UV channels/default or explicit
+UVs, transform parameters and matrix-update behavior, color space, glTF samplers,
+explicit mip-generation/anisotropy, level/bias, texel offsets and sample/fetch mode.
+`TextureSizeNode` and `MaxMipLevelNode` are also supported. Resources are ordinary
+image-backed RGBA8 `Texture` objects; image `flipY` is baked by the writer and
+normalized to false on import. TSL textures share resources within the graph and
+stay separate from ordinary material-slot clones to preserve fallback state.
+
+See the [2D texture support and r186 audit](../../docs/texture-node-support.md)
+for the exact encoding, tests and limitations. Ordinary fallback map transforms
+must be representable by native glTF/KHR processing: use zero center and uniform
+scale when rotating, or a matching fixed KHR matrix. Incompatible fallback map
+transforms fail on export; TSL-only textures retain arbitrary matrices/centers.
+Depth/comparison/gather/gradients, external live references, advanced texture
+classes, renderer resources, manual mip chains, premultiplied uploads, custom
+texture metadata and callbacks require paired adapters or separate resource
+design. Failed graph reconstruction retains the entire ordinary material.
 
 ## Development and tests
 

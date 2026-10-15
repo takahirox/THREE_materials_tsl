@@ -1,5 +1,6 @@
 import * as TSL from 'three/tsl';
 import { resolveDataNode, isDataNodeOp } from './dataNodes.js';
+import { resolveTextureNode, isTextureNodeOp } from './textureNodes.js';
 import { ConstNode } from 'three/webgpu';
 import AttributeNode from 'three/src/nodes/core/AttributeNode.js';
 import UniformNode from 'three/src/nodes/core/UniformNode.js';
@@ -37,6 +38,7 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
   return (op: string, _args?: JsonValue, links?: Record<string, unknown>) => {
     if (Object.prototype.hasOwnProperty.call(overrides, op)) return overrides[op];
     if (isDataNodeOp(op)) return resolveDataNode(op, _args, links);
+    if (isTextureNodeOp(op)) return resolveTextureNode(op, _args, links);
     if (op === 'ConstNode' || op === 'UniformNode') {
       const args = _args as Record<string, unknown> | undefined;
       if (!args) return null;
