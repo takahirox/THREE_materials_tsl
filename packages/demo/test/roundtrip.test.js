@@ -504,10 +504,12 @@ it('falls back after a resolver or dependency throws without retaining successfu
   expect(failed.scene.children[0].material.colorNode).toBeUndefined();
 
   json.textures = [{}];
+  // Resource links require a consumer adapter; default literals reject links.
+  json.materials[0].extensions[extensionName].nodes.factor.op = 'TextureDependencyNode';
   json.materials[0].extensions[extensionName].nodes.factor.links = { value: { $refTex: 0 } };
   const loader = new GLTFLoader();
   loader.register(() => ({ name: 'failed_texture', loadTexture: async () => { throw new Error('texture failed'); } }));
-  loader.register((parser) => new THREEMaterialsTSLLoaderPlugin(parser, { nodeResolver: createDefaultNodeResolver(), onError: (error) => errors.push(error) }));
+  loader.register((parser) => new THREEMaterialsTSLLoaderPlugin(parser, { nodeResolver: createDefaultNodeResolver({ overrides: { TextureDependencyNode: () => new ConstNode(0) } }), onError: (error) => errors.push(error) }));
   const result = await loader.parseAsync(JSON.stringify(json), '');
   expect(errors[1].message).toBe('texture failed');
   expect(result.scene.children[0].material.type).toBe('MeshPhysicalMaterial');

@@ -1,3 +1,4 @@
+import { serializeUniformArrayNode, isUniformArrayNodeOp } from './uniformArrayNodes.js';
 import { serializeGeometryNode, isGeometryNodeOp } from './geometryNodes.js';
 import type { JsonValue } from './types.js';
 import type { NodeExport } from './types.js';
@@ -96,11 +97,13 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
     for (const [property, value] of Object.entries(node)) {
       if (typeof value === 'function' ||
           (['updateType', 'updateBeforeType', 'updateAfterType'].includes(property) && value !== 'none' &&
-            !(property === 'updateType' && (isTextureNodeOp(nodeType) || isReferenceNodeOp(nodeType) || isGeometryNodeOp(nodeType))))) {
+            !(property === 'updateType' && (isTextureNodeOp(nodeType) || isReferenceNodeOp(nodeType) || isGeometryNodeOp(nodeType) || isUniformArrayNodeOp(nodeType))))) {
         throw new Error(`Unsupported dynamic property "${property}"; supply explicit adapters`);
       }
     }
 
+    const uniformArrayNode = serializeUniformArrayNode(node);
+    if (uniformArrayNode) return uniformArrayNode;
     const geometryNode = serializeGeometryNode(node);
     if (geometryNode) return geometryNode;
     const referenceNode = serializeReferenceNode(node);
