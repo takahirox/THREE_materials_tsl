@@ -1,9 +1,10 @@
 import { beforeAll, afterAll, expect, it, vi } from 'vitest';
-import { BoxGeometry, Float32BufferAttribute, Mesh, Scene, Color, Vector2, Vector3, Vector4, Matrix3, DoubleSide } from 'three';
+import { BoxGeometry, Float32BufferAttribute, Mesh, Scene, Color, Vector2, Vector3, Vector4, Matrix3, Matrix4, DoubleSide } from 'three';
 import { MeshPhysicalNodeMaterial, UniformArrayNode, BufferNode, BufferAttributeNode, ArrayNode, ConstNode,
   NodeFrame, NodeBuilder, GLSLNodeBuilder, WGSLNodeBuilder, StandardNodeLibrary, UniformGroupNode,
-  UniformNode, AttributeNode, MathNode, OperatorNode, VarNode, ConvertNode, SubBuildNode } from 'three/webgpu';
+  UniformNode, AttributeNode, MathNode, OperatorNode, VarNode, ConvertNode, SubBuildNode, SplitNode, ConditionalNode } from 'three/webgpu';
 import SourceUniformArrayNode from 'three/src/nodes/accessors/UniformArrayNode.js';
+import SourceConstNode from 'three/src/nodes/core/ConstNode.js';
 import SourceUniformNode from 'three/src/nodes/core/UniformNode.js';
 import * as TSL from 'three/tsl';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
@@ -253,6 +254,67 @@ it.each(indexForms)('rejects incompatible scalar input values through %s on expo
   }
 });
 
+// A scalar result must not hide incompatible vector/color/matrix/bool leaves.
+const invalidNonscalarInputs = [
+  [1, 'float', 'vec2'], [true, 'bool', 'vec3'],
+  [new Vector2(0, 1), 'vec2', 'vec3'], [new Vector3(), 'vec3', 'vec4'],
+  [new Color(), 'color', 'vec3'], [new Vector3(), 'vec3', 'color'],
+  [1, 'float', 'color'], [1, 'float', 'bool'],
+  [new Vector2(0.5, 1), 'vec2', 'ivec2'],
+  [new Vector3(0, -1, 1), 'vec3', 'uvec3'],
+  [new Vector4(0, 1, 2, 2147483648), 'vec4', 'ivec4'],
+  [new Vector2(0, 1), 'vec2', 'bvec2'],
+  [new Vector2(0, Infinity), 'vec2', 'vec2'],
+  [new Color(0, NaN, 0), 'color', 'color'],
+  [new Vector4(0, 1, 2, 1e40), 'vec4', 'vec4'],
+  [new Matrix3(), 'mat3', 'mat2'], [new Matrix3(), 'mat3', 'mat4'],
+  [new Matrix4(), 'mat4', 'mat3'],
+  [new Vector4(), 'vec4', 'mat2'],
+  [new Matrix4().fromArray(Array(16).fill(1e40)), 'mat4', 'mat4']
+];
+const scalarProjections = [
+  ['SplitNode', (node) => new SplitNode(node, 'x')],
+  ['wrapped SplitNode', (node) => new VarNode(new ConvertNode(new SplitNode(node, 'x'), 'uint'))],
+  ['MathNode', (node) => new MathNode('length', node)]
+];
+it.each(scalarProjections)('rejects malformed nonscalar index descendants through %s on export', async (_, project) => {
+  for (const Ctor of [ConstNode, UniformNode, SourceConstNode, SourceUniformNode]) {
+    for (const [value, , type] of invalidNonscalarInputs) {
+      const m = new MeshPhysicalNodeMaterial();
+      m.colorNode = TSL.uniformArray([0.2, 0.8]).element(project(new Ctor(value, type)));
+      await expect(exportScene(sceneWith(m))).rejects.toThrow();
+    }
+  }
+});
+
+it.each([['ConstNode', ConstNode], ['UniformNode', UniformNode], ['source ConstNode', SourceConstNode], ['source UniformNode', SourceUniformNode]])('preserves valid nonscalar index inputs for %s through two round trips', async (_, Ctor) => {
+  const inputs = [
+    [new Vector2(0, 1), 'vec2'], [new Vector3(0, 1, 0), 'vec3'],
+    [new Vector4(0, 1, 0, 1), 'vec4'], [new Color(0, 1, 0), 'color'],
+    [new Vector2(0, 1), 'ivec2'], [new Vector3(0, 1, 0), 'uvec3'],
+    [new Matrix3(), 'mat3'], [new Matrix4(), 'mat4'], [true, 'bool']
+  ];
+  for (const [value, type] of inputs) {
+    const m = new MeshPhysicalNodeMaterial();
+    m.roughnessNode = new Ctor(value, type);
+    const input = type.startsWith('mat') ? new OperatorNode('*', m.roughnessNode,
+      new ConstNode(type === 'mat3' ? new Vector3(0, 1, 0) : new Vector4(0, 1, 0, 1))) : m.roughnessNode;
+    const index = type === 'bool' ? new ConditionalNode(input, new ConstNode(1), new ConstNode(0)) : new SplitNode(input, 'x');
+    m.colorNode = TSL.uniformArray([0.2, 0.8]).element(index);
+    const expected = [false, true].map((gpu) => shader(m.colorNode, gpu));
+    let scene = sceneWith(m);
+    for (let round = 0; round < 2; round++) {
+      const errors = []; const gltf = await load(await exportScene(scene), errors);
+      expect(errors, type).toEqual([]);
+      const actual = meshes(gltf.scene)[0].material;
+      expect(actual.roughnessNode.value).toEqual(value);
+      expect(actual.roughnessNode.nodeType).toBe(type);
+      expect([false, true].map((gpu) => shader(actual.colorNode, gpu))).toEqual(expected);
+      scene = gltf.scene;
+    }
+  }
+});
+
 const nativeIndexClasses = [
   [UniformNode, [0, 'uint']], [SourceUniformNode, [0, 'uint']], [ConstNode, [0, 'uint']],
   [AttributeNode, ['customIndex', 'uint']],
@@ -319,6 +381,14 @@ it.each(invalidExports.map((create, i) => [i, create]))('rejects unsupported exp
 });
 
 const invalidImports = [
+  ...['ConstNode', 'UniformNode'].flatMap((op) => invalidNonscalarInputs.map(([value, valueType, nodeType]) => (e, p, n) => {
+    e.nodes.badInput = { op, args: { value: value.toArray ? value.toArray() : value, valueType, nodeType, precision: null } };
+    e.nodes.projectedIndex = { op: 'SplitNode', args: { nodeType: null, name: null, global: false, parents: false, components: 'x' },
+      links: { node: { $ref: 'badInput' } } };
+    e.nodes.wrappedIndex = { op: 'ConvertNode', args: { nodeType: null, name: null, global: false, parents: false, convertTo: 'uint' },
+      links: { node: { $ref: 'projectedIndex' } } };
+    n.links.indexNode = { $ref: 'wrappedIndex' };
+  })),
   ...['ConstNode', 'UniformNode'].flatMap((op) => indexForms.flatMap(([form]) =>
     invalidScalarInputs.map(([value, valueType, nodeType]) => (e, p, n) => {
       e.nodes.badIndex = { op, args: { value: value.toArray ? value.toArray() : value, valueType, nodeType, precision: null } };

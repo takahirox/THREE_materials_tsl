@@ -7,13 +7,14 @@ import type { JsonValue, NodeExport } from './types.js';
 import * as NativeNodes from 'three/webgpu';
 import * as SourceNodes from 'three/src/nodes/Nodes.js';
 
-import { Color, Vector2, Vector3, Vector4 } from 'three';
+import { Color, Vector2, Vector3, Vector4, Matrix2, Matrix3, Matrix4 } from 'three';
 import { UniformArrayNode, ConstNode, NodeBuilder } from 'three/webgpu';
 import type { AttributeNode, Node } from 'three/webgpu';
 
 // Keep the data contract paired in exporter/loader. No GPU packing lives here.
 const sizes: Record<string, number> = { float: 1, int: 1, uint: 1, color: 3, vec2: 2, vec3: 3, vec4: 4 };
 const classes = { color: Color, vec2: Vector2, vec3: Vector3, vec4: Vector4 };
+const inputClasses = { ...classes, mat2: Matrix2, mat3: Matrix3, mat4: Matrix4 };
 const fields = ['nodeType', 'name', 'global', 'parents'];
 export const isUniformArrayNodeOp = (op: string) => op === 'UniformArrayNode' || op === 'UniformArrayElementNode';
 const check = (valid: unknown) => {
@@ -22,6 +23,25 @@ const check = (valid: unknown) => {
 const numeric = (value: unknown, type: string) => typeof value === 'number' && Number.isFinite(value) && !Object.is(value, -0) &&
   (type === 'int' ? Number.isInteger(value) && value >= -2147483648 && value <= 2147483647 :
     type === 'uint' ? Number.isInteger(value) && value >= 0 && value <= 4294967295 : Number.isFinite(Math.fround(value)));
+// InputNode permits an explicit shader type independent of its JS value.
+// Validate every leaf before a scalar-producing expression can hide its shape.
+function validateIndexInput(value: unknown, type: string) {
+  if (['float', 'int', 'uint'].includes(type)) return check(numeric(value, type));
+  if (type === 'bool') return check(typeof value === 'boolean');
+  const vector = /^([biu]?)vec([234])$/.exec(type);
+  const matrix = /^mat([234])$/.exec(type);
+  const shape = vector ? `vec${vector[2]}` : type;
+  const Ctor = inputClasses[shape as keyof typeof inputClasses];
+  check(Ctor && value && Object.getPrototypeOf(value) === Ctor.prototype);
+  const data = value as Record<string, unknown>;
+  const components = matrix ? data.elements :
+    (type === 'color' ? ['r', 'g', 'b'] : ['x', 'y', 'z', 'w'].slice(0, Number(vector?.[2])))
+      .map((key) => Object.getOwnPropertyDescriptor(value, key)?.value);
+  const count = matrix ? Number(matrix[1]) ** 2 : type === 'color' ? 3 : Number(vector?.[2]);
+  const componentType = vector?.[1] === 'i' ? 'int' : vector?.[1] === 'u' ? 'uint' : 'float';
+  check(Array.isArray(components) && components.length === count && Array.from(components).every((component) =>
+    vector?.[1] === 'b' ? typeof component === 'boolean' : numeric(component, componentType)));
+}
 function validateArgs(op: string, args: Record<string, unknown>) {
   check(Object.keys(args).every((key) => [...fields, ...(op === 'UniformArrayNode' ? ['elementType', 'array', 'precision'] : [])].includes(key)));
   check(args.nodeType === null);
@@ -69,10 +89,7 @@ function validateIndexGraph(index: Node, builder: NodeBuilder, seen = new Set<No
   }
   for (const { childNode } of index.getSerializeChildren()) validateIndexGraph(childNode, builder, seen);
   if (index.type === 'ConstNode' || index.type === 'UniformNode') {
-    const type = index.getNodeType(builder);
-    // An explicit scalar shader type does not make a vector/bool input scalar.
-    // Inspect every input, including those under wrappers and expressions.
-    if (['float', 'int', 'uint'].includes(type)) check(numeric((index as Node & { value: unknown }).value, type));
+    validateIndexInput((index as Node & { value: unknown }).value, index.getNodeType(builder));
   }
 }
 function validateElement(node: Element) {
