@@ -1,5 +1,5 @@
 import { beforeAll, afterAll, expect, it, vi } from 'vitest';
-import { BoxGeometry, Mesh, Scene, Color, Vector2, Vector3, Vector4, Matrix3, DoubleSide } from 'three';
+import { BoxGeometry, Float32BufferAttribute, Mesh, Scene, Color, Vector2, Vector3, Vector4, Matrix3, DoubleSide } from 'three';
 import { MeshPhysicalNodeMaterial, UniformArrayNode, BufferNode, BufferAttributeNode, ArrayNode, ConstNode,
   NodeFrame, NodeBuilder, GLSLNodeBuilder, WGSLNodeBuilder, StandardNodeLibrary, UniformGroupNode,
   UniformNode, AttributeNode, MathNode, OperatorNode, VarNode, ConvertNode, SubBuildNode } from 'three/webgpu';
@@ -38,12 +38,12 @@ async function load(json, errors = [], enabled = true) {
   return loader.parseAsync(json instanceof ArrayBuffer ? json : JSON.stringify(json), '');
 }
 
-function shader(node, gpu = false, stage = 'fragment') {
+function shader(node, gpu = false, stage = 'fragment', geometry = new BoxGeometry()) {
   const material = new MeshPhysicalNodeMaterial();
   const renderer = { backend: { isWebGPUBackend: gpu }, library: new StandardNodeLibrary(),
     debug: { diagnostics: { keywords: false } } };
   const Builder = gpu ? WGSLNodeBuilder : GLSLNodeBuilder;
-  const builder = new Builder(new Mesh(new BoxGeometry(), material), renderer);
+  const builder = new Builder(new Mesh(geometry, material), renderer);
   builder.setShaderStage(stage);
   const flow = builder.flowStagesNode(node, node.getNodeType(builder));
   // Normalize native ID-based buffer identifiers only; compare all layout/code.
@@ -140,18 +140,28 @@ it('supports a single element, upper length bound, direct native/source instance
   expect(actual.indexNode.type).toBe('VarNode'); expect(actual.indexNode.node.type).toBe('OperatorNode');
 });
 
-it('round-trips a shared inferred attribute index twice', async () => {
+it.each([null, 'float', 'int', 'uint'])('round-trips a populated shared attribute index of type %s twice with native shader linkage', async (type) => {
   const m = new MeshPhysicalNodeMaterial();
-  m.roughnessNode = TSL.attribute('customIndex');
+  m.roughnessNode = TSL.attribute('_customindex', type);
   m.colorNode = TSL.uniformArray([1, 2]).element(m.roughnessNode);
   let scene = sceneWith(m);
+  const geometry = meshes(scene)[0].geometry;
+  const values = Array.from({ length: geometry.getAttribute('position').count }, (_, i) => i % 2);
+  geometry.setAttribute('_customindex', new Float32BufferAttribute(values, 1));
+  const shaders = (node, geometry) => [false, true].flatMap((gpu) => ['fragment', 'vertex'].map((stage) => shader(node, gpu, stage, geometry)));
+  const expected = shaders(m.colorNode, geometry);
+  for (const gpu of [false, true]) expect(shader(m.colorNode, gpu, 'vertex', geometry).result).toContain('_customindex');
   for (let round = 0; round < 2; round++) {
-    const errors = []; const gltf = await load(await exportScene(scene), errors);
+    const json = await exportScene(scene);
+    expect(json.meshes[0].primitives[0].attributes._CUSTOMINDEX).toBeTypeOf('number');
+    const errors = []; const gltf = await load(json, errors);
     expect(errors).toEqual([]);
-    const actual = meshes(gltf.scene)[0].material;
+    const mesh = meshes(gltf.scene)[0], actual = mesh.material;
+    expect(Array.from(mesh.geometry.getAttribute('_customindex').array)).toEqual(values);
     expect(actual.colorNode.indexNode).toBe(actual.roughnessNode);
-    expect(actual.roughnessNode.getAttributeName()).toBe('customIndex');
-    expect(actual.roughnessNode.nodeType).toBeNull();
+    expect(actual.roughnessNode.getAttributeName()).toBe('_customindex');
+    expect(actual.roughnessNode.nodeType).toBe(type);
+    expect(shaders(actual.colorNode, mesh.geometry)).toEqual(expected);
     scene = gltf.scene;
   }
 });
@@ -197,6 +207,16 @@ const indexForms = [
   ['SubBuild', (node) => new SubBuildNode(node, 'arrayIndex')],
   ['OperatorNode', (node) => new OperatorNode('+', node, new ConstNode(0))]
 ];
+it.each([...indexForms, ['MathNode', (node) => TSL.length(node)]])('rejects attribute indices renamed by native glTF through %s', async (_, wrap) => {
+  for (const name of ['customIndex', 'customindex', '_customIndex', 'color_0', 'texcoord_0', 'morphIndex']) {
+    const m = new MeshPhysicalNodeMaterial();
+    m.colorNode = TSL.uniformArray([0.2, 0.8]).element(wrap(TSL.attribute(name, 'float')));
+    const scene = sceneWith(m), geometry = meshes(scene)[0].geometry;
+    geometry.setAttribute(name, new Float32BufferAttribute(Array.from({ length: geometry.getAttribute('position').count }, (_, i) => i % 2), 1));
+    for (const gpu of [false, true]) expect(JSON.stringify(shader(m.colorNode, gpu, 'vertex', geometry))).toContain(name);
+    await expect(exportScene(scene)).rejects.toThrow(/attribute.*index.*name/i);
+  }
+});
 it.each(indexForms)('preserves valid scalar uniform indices through %s twice', async (_, wrap) => {
   for (const Ctor of [UniformNode, SourceUniformNode]) for (const type of [null, 'float', 'int', 'uint']) {
     const m = new MeshPhysicalNodeMaterial();

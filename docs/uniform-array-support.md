@@ -81,6 +81,17 @@ bounds logic is added. The parent/index references use existing traversal and
 hydration, preserving shared parents, shared indices, repeated elements and
 TSL singleton identity. Expression ArrayNode remains a separate operation.
 
+AttributeNode descendants of an index expression must use canonical geometry
+names: `position`, `normal`, `tangent`, `uv`, `uv1`, `uv2`, `uv3`, `color`,
+`skinWeight`, `skinIndex`, or custom names matching `^_[a-z0-9_]*$`.
+Other names fail export, even inside wrappers/math expressions. Native r186
+GLTFExporter uppercases custom names and adds `_`; GLTFLoader lowercases them.
+For example, `customIndex` becomes `_customindex` while an unchanged graph would
+still read `customIndex` and silently generate a constant-zero index. Use
+`_customindex` consistently on both the geometry and graph, or provide paired
+geometry/graph adapters. This guard does not rewrite names or add general
+geometry-layout support.
+
 ## Snapshot and update semantics
 
 The file contains **material data at export time**. Export reads `array`, even if
@@ -121,6 +132,7 @@ coexistence, concrete materialType restoration and singleton protections remain.
 | BufferNode / BufferAttributeNode, interleaving, attributes and arbitrary layouts | This subset does not establish buffer layout, stride/offset, normalization, geometry association, usage or instancing transport. Separate accessor/layout adapters and tests are needed. |
 | Storage buffers, compute resources and dispatch | Require allocation/access/synchronization/dispatch contracts beyond material snapshots. |
 | Dynamic vector/bool indices, renderer-dependent type inference | Ambiguous native coercion or unavailable inference context. Use scalar native expressions or a paired typed adapter. |
+| Noncanonical attribute names in index expressions | Native glTF may rename or omit the geometry attribute without changing the graph's lookup. Use the canonical names above or paired geometry/graph binding adapters. |
 
 No schema change, v1.0 compatibility, executable file data, eval, custom shader
 implementation, package publication or version bump is included.
@@ -137,6 +149,10 @@ and per-render NodeFrame caching/updates. Native GLSL and WGSL flow/declarations
 are compared in both vertex and fragment stages with constant indices. Native
 instanceIndex is compared in the vertex stage, where its linkage is valid.
 Only generated ID-based buffer identifiers are normalized in code comparisons.
+Populated scalar `_customindex` attributes retain their values, shared node
+identity and GLSL/WGSL linkage through two round trips, with inferred and explicit
+scalar types. Renamed/omitted names, including `customIndex`, are rejected on
+export through direct indices, wrappers, operators and math expressions.
 
 Negative tests cover arrays/types/ranges/shapes, callbacks/groups/classes/buffers,
 invalid index references/types/constants, unexpected state, cycles, unreachable
@@ -157,7 +173,7 @@ post-merge verification: none. Final command results are recorded below.
 | `npm --prefix packages/loader ci` | Passed; 0 reported vulnerabilities. |
 | `npm --prefix packages/exporter ci` | Passed; 0 reported vulnerabilities. |
 | `npm --prefix packages/demo ci` | Passed; npm reported 10 existing dependency advisories (3 moderate, 5 high, 2 critical). No dependency changes were made. |
-| `npm --prefix packages/demo test` | Passed: 7 files, **850 tests**, including **120 uniform-array tests**; no skips. Existing texture-packing tests emit native exporter warnings. |
+| `npm --prefix packages/demo test` | Passed after the attribute-index binding fix: 7 files, **970 tests**, including **240 uniform-array tests**; no skips. Existing texture-packing tests emit native exporter warnings. |
 | `npm --prefix packages/loader run build` | Passed. |
 | `npm --prefix packages/exporter run build` | Passed. |
 | `npm --prefix packages/demo run typecheck` | Passed. |

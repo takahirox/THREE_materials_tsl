@@ -9,7 +9,7 @@ import * as SourceNodes from 'three/src/nodes/Nodes.js';
 
 import { Color, Vector2, Vector3, Vector4 } from 'three';
 import { UniformArrayNode, ConstNode, NodeBuilder } from 'three/webgpu';
-import type { Node } from 'three/webgpu';
+import type { AttributeNode, Node } from 'three/webgpu';
 
 // Keep the data contract paired in exporter/loader. No GPU packing lives here.
 const sizes: Record<string, number> = { float: 1, int: 1, uint: 1, color: 3, vec2: 2, vec3: 3, vec4: 4 };
@@ -58,6 +58,15 @@ function validateIndexGraph(index: Node, builder: NodeBuilder, seen = new Set<No
   if (getSharedTSLNodeName(index)) return;
   check(nativeIndexTypes.get(Object.getPrototypeOf(index)) === index.type ||
     elementTemplates.some((template) => Object.getPrototypeOf(index) === Object.getPrototypeOf(template)));
+  if (index.type === 'AttributeNode') {
+    const name = (index as AttributeNode).getAttributeName(builder);
+    // Native glTF uppercases/prefixes custom names, then lowercases them on
+    // import. Accept canonical built-ins and already canonical custom names;
+    // rewriting only the graph would lose its binding to the source geometry.
+    if (typeof name !== 'string' || !(['position', 'normal', 'tangent', 'uv', 'uv1', 'uv2', 'uv3', 'color', 'skinWeight', 'skinIndex'].includes(name) || /^_[a-z0-9_]*$/.test(name))) {
+      throw new Error('Unsupported attribute index name: native glTF may rename or omit it; use a canonical name or paired geometry adapters');
+    }
+  }
   for (const { childNode } of index.getSerializeChildren()) validateIndexGraph(childNode, builder, seen);
   if (index.type === 'ConstNode' || index.type === 'UniformNode') {
     const type = index.getNodeType(builder);

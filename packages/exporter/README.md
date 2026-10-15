@@ -110,6 +110,12 @@ and per-render updates. The plugins do not store generated buffers or shader
 code. Scalar index nodes (including native `instanceIndex` in valid stages) use
 native semantics; constants must be integral and in range, and the application
 must keep dynamic indices within bounds and obey device uniform limits.
+Attribute indices, including those nested in expressions, require canonical
+geometry names: `position`, `normal`, `tangent`, `uv`, `uv1`, `uv2`, `uv3`,
+`color`, `skinWeight`, `skinIndex`, or custom names matching `^_[a-z0-9_]*$`.
+Other names fail export because native glTF may rename or omit the geometry
+attribute (for example, `customIndex` becomes `_customindex`), breaking its graph
+binding. Use a canonical name on both the geometry and graph, or paired adapters.
 
 Custom callbacks, external live array bindings, custom groups/buffer labels,
 partial update ranges, matrices/other element types and arbitrary buffer,
