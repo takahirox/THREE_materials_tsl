@@ -1,8 +1,9 @@
 # Three.js TSL node coverage
 
 This is the default-plugin coverage inventory for [Issue #15](https://github.com/takahirox/THREE_materials_tsl/issues/15),
-updated with [Issue #17](https://github.com/takahirox/THREE_materials_tsl/issues/17) 2D texture support
-and [Issue #19](https://github.com/takahirox/THREE_materials_tsl/issues/19) shading and bit/packing nodes.
+updated with [Issue #17](https://github.com/takahirox/THREE_materials_tsl/issues/17) 2D texture support,
+[Issue #19](https://github.com/takahirox/THREE_materials_tsl/issues/19) shading and bit/packing nodes,
+and [Issue #21](https://github.com/takahirox/THREE_materials_tsl/issues/21) dynamic material/model references.
 It describes **Draft v2.0 only** and does not change the extension schema or promise universal TSL portability.
 
 ## Reference and audit method
@@ -47,7 +48,8 @@ with an adapter path or future decision recorded in each row.
 | 2D texture sampling and queries | **Supported and tested (#17)** | `TextureNode`, `TextureSizeNode`, `MaxMipLevelNode` | Ordinary RGBA8 image textures through native glTF resources; default/explicit UVs and channels, transforms/matrix updates, color space, sampler/mipmap intent, level/bias/offset/fetch, and internal base-node references. See the [supported subset and transform constraints](texture-node-support.md). |
 | Advanced texture variants | **Requires a custom adapter / separate resource design** | `CubeTextureNode`, `Texture3DNode` and advanced `TextureNode` modes | Comparison/depth, gradients, gather, external mutable references, cube/volume/storage/render-target and custom resources fail explicitly. Paired adapters need agreed resource and lifetime semantics; shader code and live objects are never file data. |
 | CPU buffers and attributes | **Requires a custom adapter** | `BufferNode`, `BufferAttributeNode`, `UniformArrayNode`, `UniformArrayElementNode` | Serialization omits buffer contents, layout/stride/offset, usage and some element metadata. Accessor links already work through custom adapters, but do not by themselves specify uniform packing, interleaving or instancing. Adapters can cover immutable, non-interleaved BufferAttributes; agree on allowed layout/type/count and normalized/integer behavior, then add real buffer and shader tests. |
-| Live object/material/user references | **Requires a custom adapter** | `ReferenceNode`, `ReferenceBaseNode`, `ReferenceElementNode`, `MaterialReferenceNode`, `RendererReferenceNode`, `UserDataNode`, `Object3DNode`, `ModelNode`, `MaterialNode` | Object identity, property paths, reference-update rules and consumer-owned objects are not ordinary glTF resources. Exact exported shared objects are supported separately below. Adapters can bind agreed material properties or explicit consumer objects; define an allowed property namespace and binding lifetime rather than serializing JavaScript object graphs. |
+| Current material/model references | **Supported subset (#21)** | `MaterialNode`, `ModelNode`, `MaterialReferenceNode` | Explicit mesh/glTF material scopes, six current-object model scopes, and current-material scalar/color/vec2 properties with exact types. Native runtime updates, graph sharing and primitive clones are preserved. No foreign material, arbitrary property path, array/buffer or texture reference. See the [exact scope/property allowlists and audit](reference-node-support.md). |
+| Explicit object and other live references | **Requires a custom adapter** | `ReferenceNode`, `ReferenceBaseNode`, `ReferenceElementNode`, `RendererReferenceNode`, `UserDataNode`, `Object3DNode` | Object identity, property paths and consumer lifetimes require paired adapters. Object3DNode's null object is unbound, not the current mesh; explicit objects lack graph/glTF bindings and are never silently retargeted. Use ModelNode for current-mesh semantics or consumer-owned binding IDs with a matching resolver. See the [binding contract](reference-node-support.md#modelnode-scopes-and-object-bindings). |
 | Bit/packing math | **Supported and tested (#19)** | `BitcastNode`, `BitcountNode`, `PackFloatNode`, `UnpackFloatNode`, `Packed4x8IntegerNode` | 32-bit numeric scalar/vector bitcasts, three integer bitcount methods, snorm/unorm 2x16/4x8 and float16 2x16, all eight signed/unsigned packed-integer methods. Float-to-float bitcasts (no r186 GLSL intrinsic), invalid widths/types/layouts and wrong arity fail. See the [exact per-class variants](shading-node-support.md). |
 | Surface mapping | **Supported and tested (#19)** | `NormalMapNode`, `BumpMapNode` | Tangent/object space, optional scales, tangent RG/GA unpacking and ordinary 2D textures. Object-space packed normals are incompatible in Three.js and rejected. Three.js owns derivatives, tangent frames and wireframe behavior. See [variants and tests](shading-node-support.md). |
 | Color and final output | **Supported and tested (#19)** | `ColorSpaceNode`, `ToneMappingNode`, `RenderOutputNode` | Built-in sRGB/linear spaces, working/output context sentinels, seven standard tone selections, exposure/color links, null versus omitted output configuration. Custom space/tone registrations require consumer adapters; no executable library or renderer settings are stored. Consumers arrange one final output transform; see the [output contract](shading-node-support.md#output-transform-contract). |
@@ -112,7 +114,7 @@ allowlist):
 | Literal/vector/type construction | `float`, `int`, `uint`, `bool`, `vec2/3/4`, `ivec*`, `uvec*`, `bvec*`, `mat*`, `color`, `uniform` | Supported when the produced ConstNode/UniformNode/JoinNode/ConvertNode and inputs fit the matrix. Literal types remain numeric/boolean/color/vector/matrix; this does not add arbitrary object/array-buffer uniforms. |
 | Arithmetic and component methods | `add`, `mul`, `sin`, `mix`, `clamp`, `.xyz`, `.setXY`, `.flipY` | Supported when lowered to supported MathNode/OperatorNode and new expression/VarNode families. The file contains the node operations, never the function itself. |
 | Array, selection and interpolation | `array`, `.element`, `select`, `varying`, `vertexStage`, `.toVarying`, `rotate`, `.toVar`, `.toConst`, `.toVarIntent`, `subBuild` | Newly supported emitted node families. JavaScript control-flow statements, assignment stacks and arbitrary closures are not included. |
-| Accessor factories | `attribute`, `uv`, `vertexColor`, `materialReference`, `reference`, `userData`, `texture`, `buffer`, `storage` | `attribute`/`uv` produce supported AttributeNode graphs; `vertexColor` supports index 0 or omitted index. `texture` supports the constrained 2D subset above. Other factories require an adapter or are deferred as listed by their emitted classes. A factory returning a supported exact shared object can use its shared name. |
+| Accessor factories | `attribute`, `uv`, `vertexColor`, `materialReference`, `reference`, `userData`, `texture`, `buffer`, `storage` | `attribute`/`uv` produce supported AttributeNode graphs; `vertexColor` supports index 0 or omitted index. `texture` supports the constrained 2D subset above. `materialReference` supports the exact current-material property/type allowlist in the [reference audit](reference-node-support.md); other factories require an adapter or are deferred as listed by their emitted classes. A factory returning a supported exact shared object can use its shared name. |
 | Shader functions and control flow | `Fn`, `If`, `Loop`, `Break`, `Continue`, `Discard`, `Return`, `glslFn`, `wgslFn` | Deferred/unsupported as standalone ops; closures/code/ordering cannot be inferred from data. A named consumer-defined data adapter may select predefined behavior, never execute file-provided code. |
 | Higher-level function libraries | `checker`, `hash`, `triNoise3D`, `mx_*`, BRDF/BSDF, fog, packing, oscillators, UV helpers, shapes, skinning/morph/instance/batch helpers | Inspect the returned graph, not the API name. Pure helpers that lower entirely to supported nodes work; many emit ShaderCallNodeInternal, context/renderer nodes or other unsupported classes. They are deferred when those classes occur, for the reasons in the matrix. A paired adapter can select a predefined consumer implementation and data parameters. No generic function invocation/deserialization exists. |
 
@@ -125,7 +127,10 @@ and private post-hydration validation before publication. Issue #19 adds the 11
 named surface/color/output, vertex-color and bit/packing classes with the exact
 [variant boundaries](shading-node-support.md) above. It reuses
 Three.js serialize/deserialize where fields exist and records small explicit
-constructor fields where they do not. Child discovery is checked against each
+constructor fields where they do not. Issue #21 adds the
+[audited current-material/model subsets](reference-node-support.md), with binding
+validation against every prepared material clone and explicit Object3DNode
+deferral. Child discovery is checked against each
 adapter; the graph writer owns traversal, sharing and cycle detection. No shader
 operation is reimplemented here. Names/types/components/interpolation settings
 are data with validated domains; constructors are explicitly imported, never
@@ -168,6 +173,8 @@ whole-material fallback. Existing custom nested texture/accessor tests remain.
 
 Required commands and outcomes for this issue are recorded in
 [the validation report](tsl-node-coverage-validation.md).
+Issue #21's reference scopes, runtime bindings and check outcomes are recorded in the
+[reference audit](reference-node-support.md).
 Issue #19's shading variants and check outcomes are recorded in the
 [shading audit](shading-node-support.md).
 Issue #17's texture subset and actual check outcomes are recorded in the

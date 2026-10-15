@@ -1,6 +1,7 @@
 import type { JsonValue } from './types.js';
 import type { NodeExport } from './types.js';
 import { getSharedTSLNodeName } from './sharedNodes.js';
+import { serializeReferenceNode, isReferenceNodeOp } from './referenceNodes.js';
 import { serializeShadingNode } from './shadingNodes.js';
 import { serializeDataNode } from './dataNodes.js';
 import { serializeTextureNode, isTextureNodeOp } from './textureNodes.js';
@@ -94,11 +95,13 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
     for (const [property, value] of Object.entries(node)) {
       if (typeof value === 'function' ||
           (['updateType', 'updateBeforeType', 'updateAfterType'].includes(property) && value !== 'none' &&
-            !(property === 'updateType' && isTextureNodeOp(nodeType)))) {
+            !(property === 'updateType' && (isTextureNodeOp(nodeType) || isReferenceNodeOp(nodeType))))) {
         throw new Error(`Unsupported dynamic property "${property}"; supply explicit adapters`);
       }
     }
 
+    const referenceNode = serializeReferenceNode(node);
+    if (referenceNode) return referenceNode;
     const textureNode = serializeTextureNode(node);
     if (textureNode) return textureNode;
     const shadingNode = serializeShadingNode(node);

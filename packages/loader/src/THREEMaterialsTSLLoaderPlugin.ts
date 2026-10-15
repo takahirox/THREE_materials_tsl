@@ -1,3 +1,4 @@
+import { validateReferenceMaterial } from './referenceNodes.js';
 import * as TSL from 'three/tsl';
 import { Material, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, Texture } from 'three';
 import { finishShadingNode } from './shadingNodes.js';
@@ -75,7 +76,7 @@ export class THREEMaterialsTSLLoaderPlugin {
           this.copyOrdinaryMaterial(source, target);
           candidates.set(source, target);
         }
-        const slots = await this.resolveGraph(extension);
+        const slots = await this.resolveGraph(extension, candidates.values());
         for (const target of candidates.values()) {
           for (const [slot, node] of Object.entries(slots)) {
             if (!safeKey(slot) || !slot.endsWith('Node') || !(slot in target)) {
@@ -158,7 +159,8 @@ export class THREEMaterialsTSLLoaderPlugin {
     throw new Error('Arguments must be JSON literals');
   }
 
-  private async resolveGraph(extension: ExtensionDefinition) {
+  private async resolveGraph(extension: ExtensionDefinition, materials: Iterable<NodeMaterial>) {
+    const targets = [...materials];
     const resolved = new Map<string, unknown>();
     const resolving = new Set<string>();
     const resolveNode = async (id: string): Promise<unknown> => {
@@ -186,6 +188,7 @@ export class THREEMaterialsTSLLoaderPlugin {
       }
       finishTextureNode(node, this.graphTextures);
       finishShadingNode(node);
+      for (const material of targets) validateReferenceMaterial(node, material);
       resolving.delete(id);
       resolved.set(id, node);
       return node;

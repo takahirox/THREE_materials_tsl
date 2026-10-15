@@ -93,6 +93,48 @@ output conversion must arrange one final transform (for a manually transformed
 RenderPipeline, set `outputColorTransform = false`). The plugins add no output
 transform. Execution remains entirely Three.js-owned.
 
+### Dynamic material and model references
+
+The paired defaults support ordinary `MaterialNode`, `ModelNode` and
+`MaterialReferenceNode` instances as live Three.js references. The exact
+MaterialNode scopes are:
+
+```text
+color opacity alphaTest roughness metalness emissive normal ao
+clearcoat clearcoatRoughness clearcoatNormal sheen sheenRoughness anisotropy
+iridescence iridescenceIOR iridescenceThickness ior transmission thickness
+attenuationDistance attenuationColor dispersion specularIntensity specularColor
+```
+
+ModelNode supports `position`, `viewPosition`, `direction`, `scale`, `worldMatrix`
+and `radius`, always following Three.js's current rendered object. Material
+references use only the current rendered material (`material: null`), with this
+property/type allowlist:
+
+| Type | Properties |
+| --- | --- |
+| `color` | `color`, `emissive`, `sheenColor`, `attenuationColor`, `specularColor` |
+| `vec2` | `normalScale`, `clearcoatNormalScale` |
+| `float` | `opacity`, `alphaTest`, `roughness`, `metalness`, `emissiveIntensity`, `aoMapIntensity`, `clearcoat`, `clearcoatRoughness`, `sheen`, `sheenRoughness`, `anisotropy`, `anisotropyRotation`, `iridescence`, `iridescenceIOR`, `ior`, `transmission`, `thickness`, `attenuationDistance`, `dispersion`, `specularIntensity` |
+
+Every default binding must exist with the expected type on the material and its
+imported primitive clones. Shared nodes select the currently rendered material;
+clone-specific values stay distinct. Unsupported bindings fail export or retain
+the entire ordinary glTF material on import. Ordinary Object3DNode is deferred:
+`object3d: null` is unbound in r186, and explicit object identities cannot be
+reconstructed from the current graph resources. Author ModelNode for current-mesh
+semantics. Explicit external materials/objects need paired serializer/resolver
+overrides with consumer-owned binding IDs, target lookup and lifetime management;
+unknown targets must fail. Arbitrary property paths, texture/array references,
+custom groups/callbacks and unsupported scopes also require adapters.
+MaterialNode bump-only/object-space/packed normals and separate opacity alphaMap
+bindings are rejected because native glTF cannot restore their setup state;
+ordinary map transforms must satisfy the existing glTF/KHR fallback constraints.
+
+See the [four-class audit and binding contract](../../docs/reference-node-support.md)
+for native serialization fields, deferred scopes, runtime/rebuild behavior,
+sharing/cloning semantics, adapter paths and validation limits.
+
 ### Default 2D textures
 
 Ordinary `TextureNode` / `texture(myTexture)` works with the paired defaults,
