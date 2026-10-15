@@ -154,6 +154,40 @@ it('round-trips a shared inferred attribute index twice', async () => {
   }
 });
 
+it.each([null, 'float', 'int', 'uint', 'vec2'])('preserves attribute index type %s and shader flow through two round trips', async (type) => {
+  const m = new MeshPhysicalNodeMaterial();
+  m.roughnessNode = TSL.attribute('uv', type);
+  m.colorNode = TSL.uniformArray([0.2, 0.8]).element(TSL.length(m.roughnessNode));
+  const shaders = (node) => [false, true].flatMap((gpu) => ['fragment', 'vertex'].map((stage) => shader(node, gpu, stage)));
+  const expected = shaders(m.colorNode);
+  if (type === 'float') {
+    const inferred = TSL.uniformArray([0.2, 0.8]).element(TSL.length(TSL.attribute('uv')));
+    expect(expected).not.toEqual(shaders(inferred));
+  }
+  let scene = sceneWith(m);
+  for (let round = 0; round < 2; round++) {
+    const json = await exportScene(scene);
+    const graph = json.materials[0].extensions[extensionName];
+    expect(graph.nodes[graph.entrypoints.roughnessNode].args).toEqual({ attributeName: 'uv', nodeType: type });
+    const errors = []; const gltf = await load(json, errors);
+    expect(errors).toEqual([]);
+    const actual = meshes(gltf.scene)[0].material;
+    expect(actual.roughnessNode.nodeType).toBe(type);
+    expect(actual.colorNode.indexNode.type).toBe('VarNode');
+    expect(actual.colorNode.indexNode.node.aNode).toBe(actual.roughnessNode);
+    expect(shaders(actual.colorNode)).toEqual(expected);
+    scene = gltf.scene;
+  }
+});
+
+it.each([123, {}, [], true, null, '', undefined])('rejects malformed attribute index name %j on export', async (name) => {
+  for (const index of [TSL.attribute(name, 'uint'), TSL.length(TSL.attribute(name, 'float'))]) {
+    const m = new MeshPhysicalNodeMaterial();
+    m.colorNode = TSL.uniformArray([0.2, 0.8]).element(index);
+    await expect(exportScene(sceneWith(m))).rejects.toThrow();
+  }
+});
+
 const invalidExports = [
   ...[[], Array(4097).fill(1), [NaN], [Infinity], [1e40], [-0], [true], [null], [1, new Vector2()], new Float32Array([1])].map((v) => () => TSL.uniformArray(v, 'float')),
   ...[['int', [1.5]], ['int', [-2147483649]], ['int', [2147483648]], ['uint', [-1]], ['uint', [4294967296]],

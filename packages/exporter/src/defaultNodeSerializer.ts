@@ -151,9 +151,17 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
         meta: { nodes: {}, textures: {}, images: {} }
       };
       (node as { serialize?: (data: Record<string, unknown>) => void }).serialize?.(serializeData);
+      const attributeName = serializeData._attributeName ?? serializeData.attributeName;
+      // Native AttributeNode.serialize() omits the explicit constructor type.
+      // Keep null for geometry inference and preserve explicit scalar/vector types.
+      const attributeType = (node as Node).nodeType ?? null;
+      if (typeof attributeName !== 'string' || attributeName.length === 0 ||
+          (attributeType !== null && (typeof attributeType !== 'string' || !/^(?:float|int|uint|bool|color|[biu]?vec[234]|mat[234])$/.test(attributeType)))) {
+        throw new Error('Invalid or unsupported AttributeNode name or type; supply explicit adapters');
+      }
       const args = cleanArgs({
-        attributeName: serializeData._attributeName ?? serializeData.attributeName,
-        nodeType: serializeData.nodeType
+        attributeName,
+        nodeType: attributeType
       });
       return { op: nodeType, args };
     }
