@@ -76,7 +76,9 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
     }
     if (op === 'AttributeNode') {
       const args = _args as { attributeName?: string; nodeType?: string | null } | undefined;
-      return new AttributeNode(args?.attributeName ?? 'uv', args?.nodeType ?? null);
+      if (typeof args?.attributeName !== 'string' || args.attributeName.length === 0) return null;
+      if (args.nodeType != null && (typeof args.nodeType !== 'string' || !/^(?:float|int|uint|bool|color|[biu]?vec[234]|mat[234])$/.test(args.nodeType))) return null;
+      return new AttributeNode(args.attributeName, args.nodeType ?? null);
     }
     if (op === 'MathNode') {
       const args = _args as { method?: MathNodeMethod } | undefined;

@@ -138,6 +138,22 @@ it('supports a single element, upper length bound, direct native/source instance
   expect(actual.indexNode.type).toBe('VarNode'); expect(actual.indexNode.node.type).toBe('OperatorNode');
 });
 
+it('round-trips a shared inferred attribute index twice', async () => {
+  const m = new MeshPhysicalNodeMaterial();
+  m.roughnessNode = TSL.attribute('customIndex');
+  m.colorNode = TSL.uniformArray([1, 2]).element(m.roughnessNode);
+  let scene = sceneWith(m);
+  for (let round = 0; round < 2; round++) {
+    const errors = []; const gltf = await load(await exportScene(scene), errors);
+    expect(errors).toEqual([]);
+    const actual = meshes(gltf.scene)[0].material;
+    expect(actual.colorNode.indexNode).toBe(actual.roughnessNode);
+    expect(actual.roughnessNode.getAttributeName()).toBe('customIndex');
+    expect(actual.roughnessNode.nodeType).toBeNull();
+    scene = gltf.scene;
+  }
+});
+
 const invalidExports = [
   ...[[], Array(4097).fill(1), [NaN], [Infinity], [1e40], [-0], [true], [null], [1, new Vector2()], new Float32Array([1])].map((v) => () => TSL.uniformArray(v, 'float')),
   ...[['int', [1.5]], ['int', [-2147483649]], ['int', [2147483648]], ['uint', [-1]], ['uint', [4294967296]],
@@ -214,6 +230,13 @@ const invalidImports = [
   }),
   ...[-1, 0.5, 2].map((value) => (e, p, n) => {
     e.nodes.badIndex = { op: 'ConstNode', args: { value, valueType: 'float', nodeType: null } };
+    n.links.indexNode = { $ref: 'badIndex' };
+  }),
+  ...[
+    ...[123, {}, [], true, null, '', undefined].map((attributeName) => ({ attributeName, nodeType: 'uint' })),
+    ...[123, {}, [], false, '', 'unknown'].map((nodeType) => ({ attributeName: 'customIndex', nodeType }))
+  ].map((args) => (e, p, n) => {
+    e.nodes.badIndex = { op: 'AttributeNode', args };
     n.links.indexNode = { $ref: 'badIndex' };
   }),
   (e) => { e.nodes.unreachable = { op: 'UniformArrayNode', args: {} }; },
