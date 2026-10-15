@@ -28,7 +28,9 @@ const numeric = (value: unknown, type: string) => typeof value === 'number' && N
 function validateIndexInput(value: unknown, type: string) {
   if (['float', 'int', 'uint'].includes(type)) return check(numeric(value, type));
   if (type === 'bool') return check(typeof value === 'boolean');
-  const vector = /^([biu]?)vec([234])$/.exec(type);
+  // Native serialization labels VectorN values as vecN; the paired loader
+  // requires numeric components, so boolean-vector inputs cannot round-trip.
+  const vector = /^([iu]?)vec([234])$/.exec(type);
   const matrix = /^mat([234])$/.exec(type);
   const shape = vector ? `vec${vector[2]}` : type;
   const Ctor = inputClasses[shape as keyof typeof inputClasses];
@@ -40,7 +42,7 @@ function validateIndexInput(value: unknown, type: string) {
   const count = matrix ? Number(matrix[1]) ** 2 : type === 'color' ? 3 : Number(vector?.[2]);
   const componentType = vector?.[1] === 'i' ? 'int' : vector?.[1] === 'u' ? 'uint' : 'float';
   check(Array.isArray(components) && components.length === count && Array.from(components).every((component) =>
-    vector?.[1] === 'b' ? typeof component === 'boolean' : numeric(component, componentType)));
+    numeric(component, componentType)));
 }
 function validateArgs(op: string, args: Record<string, unknown>) {
   check(Object.keys(args).every((key) => [...fields, ...(op === 'UniformArrayNode' ? ['elementType', 'array', 'precision'] : [])].includes(key)));

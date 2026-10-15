@@ -287,6 +287,28 @@ it.each(scalarProjections)('rejects malformed nonscalar index descendants throug
   }
 });
 
+it.each([['ConstNode', ConstNode], ['UniformNode', UniformNode], ['source ConstNode', SourceConstNode], ['source UniformNode', SourceUniformNode]])('rejects boolean-vector index descendants for %s on export', async (_, Ctor) => {
+  for (const [value, type] of [
+    [new Vector2(true, false), 'bvec2'],
+    [new Vector3(true, false, true), 'bvec3'],
+    [new Vector4(true, false, true, false), 'bvec4']
+  ]) {
+    const input = new Ctor(value, type);
+    const index = new ConditionalNode(new SplitNode(input, 'x'), new ConstNode(1), new ConstNode(0));
+    const m = new MeshPhysicalNodeMaterial();
+    m.colorNode = TSL.uniformArray([0.2, 0.8]).element(index);
+    const scene = sceneWith(m);
+    await expect(exportScene(scene), type).rejects.toThrow(/unsupported uniform array/);
+    // Native shader generation accepts these constants, but their serialized
+    // vecN valueType cannot reconstruct boolean components with the paired loader.
+    // r186 does not implement boolean-vector uniforms in its shader builders.
+    if (input.isConstNode) {
+      for (const gpu of [false, true]) shader(m.colorNode, gpu);
+      await expect(exportScene(scene), type).rejects.toThrow(/unsupported uniform array/);
+    }
+  }
+});
+
 it.each([['ConstNode', ConstNode], ['UniformNode', UniformNode], ['source ConstNode', SourceConstNode], ['source UniformNode', SourceUniformNode]])('preserves valid nonscalar index inputs for %s through two round trips', async (_, Ctor) => {
   const inputs = [
     [new Vector2(0, 1), 'vec2'], [new Vector3(0, 1, 0), 'vec3'],
