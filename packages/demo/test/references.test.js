@@ -48,12 +48,13 @@ function configured() {
   const m = new MeshPhysicalNodeMaterial();
   m.color.setRGB(0.2, 0.4, 0.6); m.roughness = 0.6; m.metalness = 0.3;
   m.emissive.setRGB(0.2, 0.3, 0.1); m.emissiveIntensity = 2; m.clearcoat = 0.4;
-  m.clearcoatRoughness = 0.2; m.sheen = 0.5; m.sheenColor.setRGB(0.2, 0.3, 0.4);
+  m.clearcoatRoughness = 0.2; m.sheen = 1; m.sheenColor.setRGB(0.2, 0.3, 0.4);
   m.sheenRoughness = 0.7; m.anisotropy = 0.3; m.anisotropyRotation = 0.2;
   m.iridescence = 0.6; m.iridescenceIOR = 1.4; m.iridescenceThicknessRange = [150, 350];
   m.transmission = 0.2; m.thickness = 0.3; m.attenuationDistance = 2; m.ior = 1.6;
   m.attenuationColor.setRGB(0.8, 0.7, 0.6); m.dispersion = 0.1;
   m.specularIntensity = 0.7; m.specularColor.setRGB(0.9, 0.8, 0.7);
+  m.normalScale.set(1, -1); m.clearcoatNormalScale.set(1, -1);
   return m;
 }
 function shader(node, mesh) {
@@ -79,13 +80,128 @@ const properties = {
   iridescence: 'float', iridescenceIOR: 'float', ior: 'float', transmission: 'float', thickness: 'float',
   attenuationDistance: 'float', attenuationColor: 'color', dispersion: 'float', specularIntensity: 'float', specularColor: 'color'
 };
+const scopeProperties = Object.fromEntries(scopes.map((scope) => [scope,
+  ({ emissive: ['emissive', 'emissiveIntensity'], normal: [], ao: ['aoMapIntensity'],
+    clearcoatNormal: [], sheen: ['sheen', 'sheenColor'], anisotropy: ['anisotropy', 'anisotropyRotation'],
+    iridescenceThickness: ['iridescenceThicknessRange'] })[scope] ?? [scope]
+]));
+function snapshot(value) { return value?.toArray ? value.toArray() : Array.isArray(value) ? [...value] : value; }
 function updateReference(node, material) {
   expect(node.updateReference({ material })).toBe(material);
   const frame = new NodeFrame(); frame.material = material; frame.updateNode(node);
   return node.node.value;
 }
+
+const lossyStates = [
+  ['clearcoatRoughness', 'clearcoatRoughness', (m) => { m.clearcoat = 0; m.clearcoatRoughness = 0.7; }],
+  ['alphaTest', 'alphaTest', (m) => { m.transparent = true; m.alphaTest = 0.4; }],
+  ['normalScale', null, (m) => { m.normalScale.set(2, 3); }],
+  ['clearcoatNormalScale', null, (m) => { m.clearcoatNormalScale.set(2, 3); }],
+  ['sheen', 'sheen', (m) => { m.sheen = 0.5; }],
+  ['alphaTest', 'alphaTest', (m) => { m.alphaTest = -0.2; }],
+  ['emissive', 'emissive', (m) => { m.emissive.setRGB(-0.1, -0.2, -0.3); }],
+  ['aoMapIntensity', 'ao', (m) => { m.aoMapIntensity = 0.3; }],
+  ['sheenColor', 'sheen', (m) => { m.sheen = 0; }],
+  ['sheenRoughness', 'sheenRoughness', (m) => { m.sheen = 0; }],
+  ['anisotropyRotation', 'anisotropy', (m) => { m.anisotropy = 0; }],
+  ['iridescenceIOR', 'iridescenceIOR', (m) => { m.iridescence = 0; }],
+  ['thickness', 'thickness', (m) => { m.transmission = 0; }],
+  ['attenuationDistance', 'attenuationDistance', (m) => { m.transmission = 0; }],
+  ['attenuationColor', 'attenuationColor', (m) => { m.transmission = 0; }],
+  ['attenuationDistance', 'attenuationDistance', (m) => { m.attenuationDistance = 0; }]
+];
+it.each(lossyStates)('rejects live %s state that ordinary glTF transport would change (%s)', async (property, scope, configure) => {
+  const source = configured(); configure(source);
+  // Establish the actual native transport loss, then require both applicable
+  // reference classes to fail export rather than publishing an altered graph.
+  const ordinary = meshes((await load(await exportScene(sceneWith(source)), [], false)).scene)[0].material;
+  expect(snapshot(ordinary[property])).not.toEqual(snapshot(source[property]));
+  const nodes = [new MaterialReferenceNode(property, properties[property])];
+  if (scope) nodes.push(new MaterialNode(scope));
+  for (const node of nodes) {
+    source.colorNode = node;
+    await expect(exportScene(sceneWith(source))).rejects.toThrow(/unsupported.*reference/);
+  }
+});
+
+it('rejects disabled iridescence range state used by MaterialNode', async () => {
+  const source = configured(); source.iridescence = 0;
+  source.colorNode = new MaterialNode('iridescenceThickness');
+  await expect(exportScene(sceneWith(source))).rejects.toThrow(/reference/);
+});
+
+it.each([
+  ['clearcoat', 'clearcoatMap'], ['clearcoatRoughness', 'clearcoatRoughnessMap'],
+  ['clearcoatNormal', 'clearcoatNormalMap'], ['sheen', 'sheenColorMap'],
+  ['sheenRoughness', 'sheenRoughnessMap'], ['anisotropy', 'anisotropyMap'],
+  ['iridescence', 'iridescenceMap'], ['iridescenceThickness', 'iridescenceThicknessMap'],
+  ['transmission', 'transmissionMap'], ['thickness', 'thicknessMap']
+])('rejects omitted %s texture dependencies even when scalar defaults survive', async (scope, map) => {
+  const source = new MeshPhysicalNodeMaterial(); source.colorNode = new MaterialNode(scope);
+  const canvas = createCanvas(2, 2); Object.defineProperty(canvas, 'data', { value: undefined });
+  source[map] = new Texture(canvas);
+  await expect(exportScene(sceneWith(source))).rejects.toThrow(/reference/);
+});
+
+it('preserves default values of disabled extensions through both round trips', async () => {
+  const source = new MeshPhysicalNodeMaterial();
+  const bindings = ['clearcoatRoughness', 'sheen', 'sheenColor', 'sheenRoughness', 'anisotropyRotation',
+    'iridescenceIOR', 'thickness', 'attenuationDistance', 'attenuationColor', 'aoMapIntensity'];
+  const refs = bindings.map((property) => new MaterialReferenceNode(property, properties[property]));
+  source.colorNode = refs.reduce((graph, ref) => graph ? TSL.add(graph, ref) : ref, null);
+  source.roughnessNode = new MaterialNode('iridescenceThickness');
+  let scene = sceneWith(source);
+  for (let round = 0; round < 2; round++) {
+    const errors = []; const gltf = await load(await exportScene(scene), errors); expect(errors).toEqual([]);
+    const m = meshes(gltf.scene)[0].material;
+    expect(m.isNodeMaterial).toBe(true);
+    for (const property of bindings) expect(snapshot(m[property])).toEqual(snapshot(source[property]));
+    expect(m.iridescenceThicknessRange).toEqual(source.iridescenceThicknessRange);
+    scene = gltf.scene;
+  }
+});
+
+it('validates normal-scale bindings in material arrays', async () => {
+  const source = configured(); source.colorNode = new MaterialReferenceNode('normalScale', 'vec2');
+  source.normalScale.set(2, 3);
+  const scene = sceneWith([configured(), source]); const geometry = scene.children[0].geometry;
+  geometry.clearGroups(); geometry.addGroup(0, geometry.index.count, 1);
+  await expect(exportScene(scene)).rejects.toThrow(/reference/);
+});
+
+it.each(['normalScale', 'clearcoatNormalScale'])('checks %s magnitudes and signs for every shared-material tangent layout', async (property) => {
+  const canvas = createCanvas(2, 2); Object.defineProperty(canvas, 'data', { value: undefined });
+  const source = configured(); source[property === 'normalScale' ? 'normalMap' : 'clearcoatNormalMap'] = new Texture(canvas);
+  const scope = property === 'normalScale' ? 'normal' : 'clearcoatNormal';
+  for (const node of [new MaterialReferenceNode(property, 'vec2'), new MaterialNode(scope)]) {
+    source.colorNode = node;
+    for (const hasTangent of [false, true]) {
+      const scene = sceneWith(source);
+      if (hasTangent) scene.children[0].geometry.computeTangents();
+      source[property].set(2, 3);
+      await expect(exportScene(scene)).rejects.toThrow(/reference/);
+      source[property].set(2, hasTangent ? 2 : -2);
+      let json = await exportScene(scene);
+      for (let round = 0; round < 2; round++) {
+        const errors = []; const gltf = await load(json, errors); expect(errors).toEqual([]);
+        const mesh = meshes(gltf.scene)[0]; const m = mesh.material;
+        const ref = node.isMaterialReferenceNode ? m.colorNode : m.colorNode.setup(shader(m.colorNode, mesh).builder).scaleNode;
+        expect(snapshot(updateReference(ref, m))).toEqual(source[property].toArray());
+        json = await exportScene(gltf.scene);
+      }
+    }
+    // A shared binding must pass for both meshes, not only whichever material
+    // cache entry GLTFExporter happened to create first.
+    source[property].set(2, -2);
+    const shared = sceneWith(source, source); shared.children[1].geometry.computeTangents();
+    await expect(exportScene(shared)).rejects.toThrow(/reference/);
+  }
+});
+
 it.each(scopes)('preserves MaterialNode scope, sharing and GLSL across two round trips: %s', async (scope) => {
   const source = configured(); source.colorNode = new MaterialNode(scope); source.emissiveNode = source.colorNode;
+  const dependencies = scopeProperties[scope];
+  const values = dependencies.map((property) => snapshot(source[property]));
   const scene = sceneWith(source); const expected = shader(source.colorNode, scene.children[0]).code;
   let json = await exportScene(scene); const graph = json.materials[0].extensions[extensionName];
   expect(graph.nodes[graph.entrypoints.colorNode].args.scope).toBe(scope);
@@ -94,6 +210,7 @@ it.each(scopes)('preserves MaterialNode scope, sharing and GLSL across two round
     const mesh = meshes(gltf.scene)[0]; const m = mesh.material;
     expect(m.isNodeMaterial).toBe(true); expect(m.colorNode).toBe(m.emissiveNode);
     expect(m.colorNode).toBeInstanceOf(MaterialNode); expect(m.colorNode.scope).toBe(scope);
+    expect(dependencies.map((property) => snapshot(m[property]))).toEqual(values);
     expect(shader(m.colorNode, mesh).code).toEqual(expected);
     // Exercise the actual material-reference uniforms produced by Three.js setup.
     const setup = m.colorNode.setup(shader(m.colorNode, mesh).builder);
@@ -108,6 +225,7 @@ it.each(scopes)('preserves MaterialNode scope, sharing and GLSL across two round
 });
 it.each(Object.entries(properties))('keeps typed MaterialReferenceNode live across two round trips: %s/%s', async (property, type) => {
   const source = configured(); source.colorNode = new MaterialReferenceNode(property, type);
+  const value = snapshot(updateReference(source.colorNode, source));
   source.emissiveNode = source.colorNode;
   const scene = sceneWith(source); const expected = shader(source.colorNode, scene.children[0]).code;
   let json = await exportScene(scene); const graph = json.materials[0].extensions[extensionName];
@@ -117,6 +235,7 @@ it.each(Object.entries(properties))('keeps typed MaterialReferenceNode live acro
     expect(node).toBeInstanceOf(MaterialReferenceNode); expect(node).toBe(m.emissiveNode);
     expect(node.property).toBe(property); expect(node.uniformType).toBe(type);
     expect(node.material).toBeNull(); expect(node.object).toBeNull();
+    expect(snapshot(updateReference(node, m))).toEqual(value);
     expect(shader(node, mesh).code).toEqual(expected);
     const old = m[property];
     m[property] = type === 'color' ? new Color(0.1, 0.2, 0.3) : type === 'vec2' ? new Vector2(0.4, 0.6) : 0.75;
@@ -154,7 +273,7 @@ it.each(['position', 'viewPosition', 'direction', 'scale', 'worldMatrix', 'radiu
 it('rebinds shared material references to GLTFLoader clones and preserves clone normal-scale updates', async () => {
   const source = configured(); source.colorNode = new MaterialReferenceNode('normalScale', 'vec2');
   const canvas = createCanvas(2, 2); Object.defineProperty(canvas, 'data', { value: undefined });
-  source.normalMap = new Texture(canvas); source.normalScale.set(0.7, 0.7);
+  source.normalMap = new Texture(canvas); source.normalScale.set(0.7, -0.7);
   source.emissiveNode = source.colorNode; source.roughnessNode = new MaterialNode('roughness');
   source.positionNode = TSL.vec3(new ModelNode('position'));
   const scene = sceneWith(source, source, source);

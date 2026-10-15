@@ -35,6 +35,57 @@ const check = (valid: unknown) => { if (!valid) throw new Error('Invalid or unsu
 export const isReferenceNodeOp = (op: string) => ['MaterialNode', 'ModelNode', 'MaterialReferenceNode', 'Object3DNode'].includes(op);
 const defaults = new WeakSet<object>();
 
+function referenceProperties(node: Record<string, unknown>, material: Record<string, unknown>): string[] {
+  if (node.type === 'MaterialReferenceNode') return [node.property as string];
+  if (node.type !== 'MaterialNode') return [];
+  if (node.scope === 'normal') return material.normalMap ? ['normalScale'] : [];
+  if (node.scope === 'clearcoatNormal') return material.clearcoatNormalMap ? ['clearcoatNormalScale'] : [];
+  return materialScopes[node.scope as string];
+}
+
+// Native r186 glTF transport omits disabled extension state and normalizes some
+// values. A live reference must start with the authored value, not just its type.
+// Do not snapshot these values into node arguments to work around that loss.
+function validatePropertyTransport(property: string, target: Record<string, unknown>) {
+  const v = target[property];
+  if (property === 'alphaTest') check(v === 0 || (!target.transparent && (v as number) > 0));
+  if (property === 'aoMapIntensity' && !target.aoMap) check(v === 1);
+  if (property === 'clearcoatRoughness' && target.clearcoat === 0) check(v === 0);
+  if (property === 'sheen') check(v === 0 || v === 1);
+  if (property === 'sheenColor' && target.sheen === 0) check((v as Color).equals(new Color(0, 0, 0)));
+  if (property === 'sheenRoughness' && target.sheen === 0) check(v === 1);
+  if (property === 'anisotropyRotation' && target.anisotropy === 0) check(v === 0);
+  if (property === 'iridescenceIOR' && target.iridescence === 0) check(v === 1.3);
+  if (property === 'iridescenceThicknessRange' && target.iridescence === 0) {
+    check((v as number[])[0] === 100 && (v as number[])[1] === 400);
+  }
+  if (property === 'thickness' && target.transmission === 0) check(v === 0);
+  if (property === 'attenuationDistance') {
+    check(v !== 0); // GLTFLoader interprets zero as Infinity.
+    if (target.transmission === 0) check(v === Infinity);
+  }
+  if (property === 'attenuationColor' && target.transmission === 0) check((v as Color).equals(new Color(1, 1, 1)));
+  if (property === 'emissive') {
+    const c = v as Color;
+    check(Math.max(c.r, c.g, c.b) > 0 || (c.r === 0 && c.g === 0 && c.b === 0));
+  }
+}
+
+// GLTFLoader flips both normal-scale Y components on primitives without
+// tangents, even without a normal map. Check every exported mesh, since shared
+// materials may be used with different tangent layouts.
+export function validateReferenceGeometry(value: object, material: object, hasTangent: boolean) {
+  if (!defaults.has(value)) return;
+  const target = material as Record<string, unknown>;
+  for (const property of referenceProperties(value as Record<string, unknown>, target)) {
+    if (property !== 'normalScale' && property !== 'clearcoatNormalScale') continue;
+    const scale = target[property] as Vector2;
+    const transportedX = property === 'normalScale' ? (target.normalMap ? Math.abs(scale.x) : 1) :
+      target.clearcoat !== 0 && target.clearcoatNormalMap ? scale.x : 1;
+    check(scale.x === transportedX && scale.y === (hasTangent ? transportedX : -transportedX));
+  }
+}
+
 function validateArgs(op: string, args: Record<string, unknown>) {
   const fields = op === 'MaterialReferenceNode' ? ['property', 'uniformType'] : ['scope'];
   check(Object.keys(args).every((key) => [...fields, 'nodeType', 'name', 'global', 'parents'].includes(key)));
@@ -61,6 +112,15 @@ export function validateReferenceMaterial(value: object, material: object) {
     // reconstruct. Never turn a bump/packed/object-space normal into a different
     // normal lookup, or silently drop the separate alpha-map reference.
     if (node.scope === 'opacity') check(!target.alphaMap);
+    const gatedMaps: Record<string, [string, string]> = {
+      clearcoat: ['clearcoat', 'clearcoatMap'], clearcoatRoughness: ['clearcoat', 'clearcoatRoughnessMap'],
+      clearcoatNormal: ['clearcoat', 'clearcoatNormalMap'], sheen: ['sheen', 'sheenColorMap'],
+      sheenRoughness: ['sheen', 'sheenRoughnessMap'], anisotropy: ['anisotropy', 'anisotropyMap'],
+      iridescence: ['iridescence', 'iridescenceMap'], iridescenceThickness: ['iridescence', 'iridescenceThicknessMap'],
+      transmission: ['transmission', 'transmissionMap'], thickness: ['transmission', 'thicknessMap']
+    };
+    const gate = gatedMaps[node.scope as string];
+    if (gate && target[gate[0]] === 0) check(!target[gate[1]]);
     if (node.scope === 'normal') {
       check(target.normalMap || !target.bumpMap);
       if (target.normalMap) {
@@ -70,8 +130,7 @@ export function validateReferenceMaterial(value: object, material: object) {
       }
     }
   }
-  const properties = node.type === 'MaterialNode' ? materialScopes[node.scope as string] :
-    node.type === 'MaterialReferenceNode' ? [node.property as string] : [];
+  const properties = referenceProperties(node, target);
   for (const property of properties) {
     const v = target[property];
     const type = materialProperties[property];
@@ -82,6 +141,7 @@ export function validateReferenceMaterial(value: object, material: object) {
       check(typeof v === 'number' && (Number.isFinite(v) || (property === 'attenuationDistance' && v === Infinity)));
     } else if (type === 'color') check(v instanceof Color && [v.r, v.g, v.b].every(Number.isFinite));
     else if (type === 'vec2') check(v instanceof Vector2 && [v.x, v.y].every(Number.isFinite));
+    validatePropertyTransport(property, target);
   }
 }
 

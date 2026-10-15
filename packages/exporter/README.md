@@ -130,6 +130,15 @@ custom groups/callbacks and unsupported scopes also require adapters.
 MaterialNode bump-only/object-space/packed normals and separate opacity alphaMap
 bindings are rejected because native glTF cannot restore their setup state;
 ordinary map transforms must satisfy the existing glTF/KHR fallback constraints.
+Export also rejects references whose initial values native glTF would drop or
+normalize: for example nonzero alphaTest with transparency, nondefault disabled
+extension properties, and sheen strengths other than 0 or 1. Normal-scale
+references must match the scalar magnitude and per-primitive tangent sign that
+GLTFLoader reconstructs (including when no map exists); incompatible shared-mesh
+layouts fail export. MaterialNode validates its actual property/texture
+dependencies by the same rules. See the audit's
+[value transport restrictions](../../docs/reference-node-support.md#value-transport-restrictions)
+for exact limits; nonportable state requires paired consumer adapters.
 
 See the [four-class audit and binding contract](../../docs/reference-node-support.md)
 for native serialization fields, deferred scopes, runtime/rebuild behavior,

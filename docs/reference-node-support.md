@@ -51,8 +51,8 @@ packed RG normals are rejected because native glTF does not reconstruct that
 setup state. A separate alphaMap for MaterialNode opacity is also rejected;
 glTF merges alpha into base-color textures rather than restoring that reference.
 MaterialNode export reuses the existing ordinary-map transform check and rejects
-transforms native glTF/KHR processing cannot preserve. Native glTF normalization still applies (for example sheen
-strength/color representation, alpha modes and primitive normal-scale signs).
+transforms native glTF/KHR processing cannot preserve. Export rejects native glTF
+normalization that would change values read by the graph; see the restrictions below.
 
 Deferred scope strings include `shininess`, `specular`, `specularStrength`,
 `reflectivity`, `rotation`, `scale`, `dashSize`, `gapSize`, `linewidth`,
@@ -101,6 +101,45 @@ for distinct clones, with an independent graph per entry on the next import;
 current-material semantics remain the same. Cross-material graph identity is
 not a glTF resource binding.
 
+## Value transport restrictions
+
+A matching runtime type alone does not make a reference portable. The exporter
+rejects initial state that native r186 glTF export/import would omit or change.
+The graph still reads the current material after import; no initial values are
+encoded as node literals, and no snapshot overrides runtime updates.
+These restrictions apply to MaterialReferenceNode and the properties actually
+used by each MaterialNode setup branch:
+
+| Referenced property | Required transport state |
+| --- | --- |
+| `alphaTest` | Zero, or positive with `transparent === false`. BLEND discards alpha cutoff. |
+| `aoMapIntensity` | Without `aoMap`, must be the default 1. |
+| `clearcoatRoughness` | With clearcoat disabled, must be the default 0. |
+| `sheen` | Must be 0 or 1; native import sets enabled sheen to 1. |
+| `sheenColor`, `sheenRoughness` | With sheen disabled, must be black and 1 respectively. |
+| `anisotropyRotation` | With anisotropy disabled, must be 0. |
+| `iridescenceIOR`, `iridescenceThicknessRange` | With iridescence disabled, must be 1.3 and `[100, 400]`. |
+| `thickness`, `attenuationDistance`, `attenuationColor` | With transmission disabled, must be 0, Infinity and white. Attenuation distance 0 is always rejected because the loader replaces it with Infinity. |
+| `emissive` | Must have a positive component or be exactly black; native export omits nonblack colors with no positive component. |
+| `normalScale` | With a normal map, X must be nonnegative; without a map X must be 1. Y must equal X for explicit tangents, or -X without tangents. |
+| `clearcoatNormalScale` | With enabled clearcoat and its normal map, native transport uses X as the scalar. Otherwise X must be 1. Y must equal X for explicit tangents, or -X without tangents. |
+
+Normal scales are checked for every exported mesh using the material, including
+material arrays and shared materials with different tangent layouts. This also
+covers GLTFLoader's Y-sign changes when no normal map exists. A shared reference
+that cannot preserve its value on all those meshes fails export. MaterialNode's
+`normal` and `clearcoatNormal` scopes depend on scales only when their maps exist.
+MaterialNode also rejects maps used by the selected scope when their enabling
+clearcoat/sheen/anisotropy/iridescence/transmission value is zero, because native
+glTF would omit the texture dependency.
+
+Unrelated material properties are not subject to these reference checks. For
+example a roughness reference does not constrain sheen strength. For state
+outside this subset, use paired consumer adapters with an explicit material-state
+transport/binding contract. Imported graph validation still checks every prepared
+material clone atomically; the importer cannot infer initial state absent from a
+file and does not invent it.
+
 ## ModelNode scopes and object bindings
 
 Supported strings are `position`, `viewPosition`, `direction`, `scale`,
@@ -146,8 +185,10 @@ The [reference integration suite](../packages/demo/test/references.test.js)
 exercises every supported scope and property through two real
 GLTFExporter → GLTFLoader round trips, including JSON and GLB, graph sharing,
 material clones, ordinary textures, names/flags, actual GLSL builder flow and
-native NodeFrame property/transform updates. Invalid exports and malformed files
-cover unsafe selectors, external bindings, unsupported scopes, wrong types,
+native NodeFrame property/transform updates. Source and imported initial values
+are compared on both round trips before applying runtime edits; negative probes
+also demonstrate actual native value loss before asserting export rejection.
+Invalid exports and malformed files cover unsafe selectors, external bindings, unsupported scopes, wrong types,
 custom callbacks/groups, private graph attachments, broken references and
 whole-material fallback. These are CPU tests; browser/WebGPU visual checks are
 optional and were not run. Shader generation does not compile GPU programs or
@@ -160,14 +201,12 @@ Executed on 2026-10-15:
 | `npm --prefix packages/loader ci` | Passed |
 | `npm --prefix packages/exporter ci` | Passed |
 | `npm --prefix packages/demo ci` | Passed |
-| `npm --prefix packages/demo test` | Passed: 566 tests in 5 files, including 126 reference-node cases |
+| `npm --prefix packages/demo test` | Passed: 597 tests in 5 files, including 157 reference-node cases |
 | `npm --prefix packages/loader run build` | Passed |
 | `npm --prefix packages/exporter run build` | Passed |
 | `npm --prefix packages/demo run typecheck` | Passed |
 | `npm --prefix packages/demo run build` | Passed; Vite reports its bundle-size advisory |
 | `git diff --check` | Passed |
 
-The packed-normal negative test also produces Three.js's expected RGBA-format
-warning before the plugin rejects that unsupported binding. Browser/WebGPU visual
-validation was skipped because this work used the Node integration environment.
+Browser/WebGPU visual validation was skipped because this work used the Node integration environment.
 No npm packages were published. Required post-merge verification: none.
