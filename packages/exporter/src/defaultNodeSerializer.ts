@@ -1,6 +1,10 @@
 import type { JsonValue } from './types.js';
 import type { NodeExport } from './types.js';
 import { getSharedTSLNodeName } from './sharedNodes.js';
+import { serializeDataNode } from './dataNodes.js';
+import { objectGroup } from 'three/tsl';
+import type { Node } from 'three/webgpu';
+import { objectGroup as sourceObjectGroup } from 'three/src/nodes/core/UniformGroupNode.js';
 
 type DefaultNodeSerializerOptions = {
   overrides?: Record<string, NodeExport | ((node: unknown) => NodeExport | null)>;
@@ -80,6 +84,33 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
       if (result) return result;
     } else if (override) {
       return override;
+    }
+
+    // Shared exports above retain their Three.js-owned update behavior. Ordinary
+    // instances with app callbacks cannot be represented by data-only glTF.
+    for (const [property, value] of Object.entries(node)) {
+      if (typeof value === 'function' ||
+          (['updateType', 'updateBeforeType', 'updateAfterType'].includes(property) && value !== 'none')) {
+        throw new Error(`Unsupported dynamic property "${property}"; supply explicit adapters`);
+      }
+    }
+
+    const dataNode = serializeDataNode(node);
+    if (dataNode) return dataNode;
+
+    if (['ConstNode', 'UniformNode', 'AttributeNode', 'MathNode', 'OperatorNode'].includes(nodeType) && !Object.prototype.hasOwnProperty.call(node.constructor, 'type')) {
+      throw new Error(`Unsupported subclass of ${nodeType}; supply explicit adapters`);
+    }
+    if (['ConstNode', 'UniformNode', 'AttributeNode'].includes(nodeType)) {
+      for (const child of (node as Node).getSerializeChildren()) {
+        if (nodeType !== 'UniformNode' || child.property !== 'groupNode' || ![objectGroup, sourceObjectGroup].includes(child.childNode as typeof objectGroup)) {
+          throw new Error(`Unsupported ${nodeType} link "${child.property}"; supply explicit adapters`);
+        }
+      }
+    }
+
+    if (nodeType === 'UniformNode' && ![objectGroup, sourceObjectGroup].includes((node as { groupNode?: unknown }).groupNode as typeof objectGroup)) {
+      throw new Error('Unsupported UniformNode group; supply explicit adapters');
     }
 
     if (nodeType === 'ConstNode' || nodeType === 'UniformNode') {

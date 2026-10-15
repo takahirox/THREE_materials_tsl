@@ -1,4 +1,5 @@
 import * as TSL from 'three/tsl';
+import { resolveDataNode, isDataNodeOp } from './dataNodes.js';
 import { ConstNode } from 'three/webgpu';
 import AttributeNode from 'three/src/nodes/core/AttributeNode.js';
 import UniformNode from 'three/src/nodes/core/UniformNode.js';
@@ -21,8 +22,9 @@ const registry = Object.fromEntries(Object.entries(TSL).filter(([, value]) =>
 
 export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeResolver => {
   const overrides = options.overrides ?? {};
-  return (op: string, _args?: JsonValue) => {
+  return (op: string, _args?: JsonValue, links?: Record<string, unknown>) => {
     if (Object.prototype.hasOwnProperty.call(overrides, op)) return overrides[op];
+    if (isDataNodeOp(op)) return resolveDataNode(op, _args, links);
     if (op === 'ConstNode' || op === 'UniformNode') {
       const args = _args as Record<string, unknown> | undefined;
       if (!args) return null;
@@ -61,6 +63,8 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
       if (!args?.op || !['+', '-', '*', '/', '%', '==', '!=', '<', '>', '<=', '>=', '&&', '||', '^^', '&', '|', '^', '<<', '>>'].includes(args.op)) return null;
       return new OperatorNode(args.op, placeholder, placeholder);
     }
-    return Object.prototype.hasOwnProperty.call(registry, op) ? registry[op] : null;
+    // Shared identities have no file-supplied state. Ignoring arguments here
+    // could silently discard a producer's intended behavior.
+    return Object.prototype.hasOwnProperty.call(registry, op) && _args === undefined ? registry[op] : null;
   };
 };

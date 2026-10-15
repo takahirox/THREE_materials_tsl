@@ -40,6 +40,11 @@ custom material/node mappings, nested texture/accessor links and atomic fallback
 for malformed graphs and unsupported encodings. See the
 [loader](../loader/README.md#supported-scope) and
 [exporter](../exporter/README.md#supported-scope) for the supported node scope.
+The [r186 coverage matrix](../../docs/tsl-node-coverage.md)
+records the full class/shared-object audit. New expression families have repeated
+round-trip and real Three.js GLSL builder tests, including fluent TSL graphs,
+shared inputs, variable/interpolation fields, arrays, conditional selection and
+rotation. These checks do not compile GPU programs or validate pixels.
 
 For all required checks from the repository root:
 

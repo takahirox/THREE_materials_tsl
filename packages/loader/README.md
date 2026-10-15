@@ -78,19 +78,34 @@ The default node resolver supports:
 - `ConstNode` and `UniformNode` with numeric, boolean, color, vector or matrix
   literals, using Three.js's deserialization (including precision).
 - `AttributeNode`, `MathNode`, and `OperatorNode` with serialized inputs.
+- `SplitNode`, `JoinNode`, `ConvertNode`, `SetNode`, and `FlipNode` for components,
+  vector construction and conversion.
+- `ArrayNode`, `ArrayElementNode`, and `ConditionalNode` for arrays and selection.
+- `VarNode`, `VaryingNode`, `SubBuildNode` (op `SubBuild`), and `RotateNode`,
+  including declaration flags, interpolation settings and Euler order.
+
+See the [coverage matrix](../../docs/tsl-node-coverage.md) for the complete audited
+class/family and shared-object inventories, tested boundaries, deferred cases,
+reasons and adapter paths. New defaults validate argument fields and required
+link shapes before reconstruction; malformed inputs use whole-material fallback.
 
 Entrypoints must name existing material properties ending in `Node`. All graph
 nodes are checked, including unreachable definitions. Nested array/object links,
 node references, texture references and accessor references are supported.
-Custom resolvers receive `(op, args)` and return a node instance, a constructor,
-or a factory. Return fresh instances for nodes with links; links are assigned
+Custom resolvers receive `(op, args, links)` and return a node instance, a constructor,
+or a factory. The optional third argument is the encoded link dictionary before
+hydration; existing two-argument resolvers remain compatible. Wrappers delegating
+to the default resolver should forward all three arguments. Return fresh instances
+for nodes with links; links are assigned
 after construction. Factories/constructors receive array arguments positionally
 and other arguments as one value. Custom code is consumer-supplied, never read
 from the glTF file.
 
-This is not a universal TSL deserializer: texture/buffer node classes, functions,
-closures, renderer resources and arbitrary custom nodes require paired exporter
-and resolver adapters. Runtime rendering still depends on Three.js's own node
+Texture/buffer node classes, closures, code-backed nodes and renderer resources
+are outside the default allowlist. Some can use paired exporter/resolver adapters;
+others need resource or control-flow design work (see the matrix). Custom code
+must remain consumer-supplied; the file cannot carry executable code.
+Runtime rendering still depends on Three.js's own node
 semantics and renderer support. `three.revision` is optional diagnostic metadata;
 it does not select a migration or gate loading.
 
