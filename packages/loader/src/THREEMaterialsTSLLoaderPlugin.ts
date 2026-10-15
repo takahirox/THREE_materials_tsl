@@ -1,5 +1,6 @@
 import * as TSL from 'three/tsl';
-import { Material, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial } from 'three';
+import { Material, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, Texture } from 'three';
+import { finishTextureNode } from './textureNodes.js';
 import { MeshBasicNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
 import type { GLTF, GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
@@ -32,6 +33,7 @@ const isNode = (value: unknown): value is { isNode: true } => record(value) && v
 
 export class THREEMaterialsTSLLoaderPlugin {
   public readonly name = 'THREE_materials_tsl';
+  private readonly graphTextures = new Map<number, Map<string, Texture>>();
 
   constructor(private readonly parser: GLTFParser, private readonly options: THREEMaterialsTSLLoaderPluginOptions) {}
 
@@ -181,6 +183,7 @@ export class THREEMaterialsTSLLoaderPlugin {
           (node as unknown as Record<string, unknown>)[slot] = await resolveLink(value);
         }
       }
+      finishTextureNode(node, this.graphTextures);
       resolving.delete(id);
       resolved.set(id, node);
       return node;

@@ -1,6 +1,7 @@
 # Three.js TSL node coverage
 
-This is the default-plugin coverage inventory for [Issue #15](https://github.com/takahirox/THREE_materials_tsl/issues/15).
+This is the default-plugin coverage inventory for [Issue #15](https://github.com/takahirox/THREE_materials_tsl/issues/15),
+updated with [Issue #17](https://github.com/takahirox/THREE_materials_tsl/issues/17) 2D texture support.
 It describes **Draft v2.0 only** and does not change the extension schema or promise universal TSL portability.
 
 ## Reference and audit method
@@ -42,7 +43,8 @@ with an adapter path or future decision recorded in each row.
 | Expression construction | **Newly implemented and tested** | `SplitNode`, `JoinNode`, `ConvertNode`, `SetNode`, `FlipNode` | Swizzle components, ordered component updates/flips, explicit/inferred vector types and conversion overloads. Inputs and repeated references are retained. Three.js owns the shader operations. |
 | Arrays and selection | **Newly implemented and tested** | `ArrayNode`, `ArrayElementNode`, `ConditionalNode` | Array element type/count, initializers or default initialization, element indices, condition/if/optional else inputs. This supports expression selection, not arbitrary JavaScript control flow. |
 | Variables, vertex interpolation and rotation | **Newly implemented and tested** | `VarNode`, `VaryingNode`, `SubBuildNode`, `RotateNode` | Variable name/readOnly/intent, varying name and interpolation type/sampling, SubBuild name/type, and Euler order. Base name, nodeType, global and parents flags are retained. The r186 operation name for SubBuildNode is `SubBuild`. |
-| Texture sampling and queries | **Requires a custom adapter** | `TextureNode`, `CubeTextureNode`, `Texture3DNode`, `TextureSizeNode`, `MaxMipLevelNode` | Resource/representation gap: a glTF texture link alone does not carry texture-info UV transforms, channel/color-space intent, mutable referenceNode behavior, comparison/depth/gradient/gather/offset state or cube/volume resources. A paired adapter can cover a constrained 2D subset with explicit links and transform rules; decide supported texture-info and sampling semantics before adding defaults. Cube/volume resources need a separate resource design. |
+| 2D texture sampling and queries | **Supported and tested (#17)** | `TextureNode`, `TextureSizeNode`, `MaxMipLevelNode` | Ordinary RGBA8 image textures through native glTF resources; default/explicit UVs and channels, transforms/matrix updates, color space, sampler/mipmap intent, level/bias/offset/fetch, and internal base-node references. See the [supported subset and transform constraints](texture-node-support.md). |
+| Advanced texture variants | **Requires a custom adapter / separate resource design** | `CubeTextureNode`, `Texture3DNode` and advanced `TextureNode` modes | Comparison/depth, gradients, gather, external mutable references, cube/volume/storage/render-target and custom resources fail explicitly. Paired adapters need agreed resource and lifetime semantics; shader code and live objects are never file data. |
 | CPU buffers and attributes | **Requires a custom adapter** | `BufferNode`, `BufferAttributeNode`, `UniformArrayNode`, `UniformArrayElementNode` | Serialization omits buffer contents, layout/stride/offset, usage and some element metadata. Accessor links already work through custom adapters, but do not by themselves specify uniform packing, interleaving or instancing. Adapters can cover immutable, non-interleaved BufferAttributes; agree on allowed layout/type/count and normalized/integer behavior, then add real buffer and shader tests. |
 | Live object/material/user references | **Requires a custom adapter** | `ReferenceNode`, `ReferenceBaseNode`, `ReferenceElementNode`, `MaterialReferenceNode`, `RendererReferenceNode`, `UserDataNode`, `Object3DNode`, `ModelNode`, `MaterialNode` | Object identity, property paths, reference-update rules and consumer-owned objects are not ordinary glTF resources. Exact exported shared objects are supported separately below. Adapters can bind agreed material properties or explicit consumer objects; define an allowed property namespace and binding lifetime rather than serializing JavaScript object graphs. |
 | Other pure math | **Deferred/unsupported** | `BitcastNode`, `BitcountNode`, `PackFloatNode`, `UnpackFloatNode`, `Packed4x8IntegerNode` | Feasible follow-up, deliberately outside this tested default set: conversion/input types, bit widths, encoding/layout and signedness require explicit fields; upstream serialization alone is incomplete for several classes. A paired data adapter can enable these without code strings. Add per-operation type and shader tests before enabling defaults. |
@@ -106,14 +108,16 @@ allowlist):
 | Literal/vector/type construction | `float`, `int`, `uint`, `bool`, `vec2/3/4`, `ivec*`, `uvec*`, `bvec*`, `mat*`, `color`, `uniform` | Supported when the produced ConstNode/UniformNode/JoinNode/ConvertNode and inputs fit the matrix. Literal types remain numeric/boolean/color/vector/matrix; this does not add arbitrary object/array-buffer uniforms. |
 | Arithmetic and component methods | `add`, `mul`, `sin`, `mix`, `clamp`, `.xyz`, `.setXY`, `.flipY` | Supported when lowered to supported MathNode/OperatorNode and new expression/VarNode families. The file contains the node operations, never the function itself. |
 | Array, selection and interpolation | `array`, `.element`, `select`, `varying`, `vertexStage`, `.toVarying`, `rotate`, `.toVar`, `.toConst`, `.toVarIntent`, `subBuild` | Newly supported emitted node families. JavaScript control-flow statements, assignment stacks and arbitrary closures are not included. |
-| Accessor factories | `attribute`, `uv`, `vertexColor`, `materialReference`, `reference`, `userData`, `texture`, `buffer`, `storage` | `attribute`/`uv` produce supported AttributeNode graphs. Other factories require an adapter or are deferred as listed by their emitted classes. A factory returning a supported exact shared object can use its shared name. |
+| Accessor factories | `attribute`, `uv`, `vertexColor`, `materialReference`, `reference`, `userData`, `texture`, `buffer`, `storage` | `attribute`/`uv` produce supported AttributeNode graphs. `texture` supports the constrained 2D subset above. Other factories require an adapter or are deferred as listed by their emitted classes. A factory returning a supported exact shared object can use its shared name. |
 | Shader functions and control flow | `Fn`, `If`, `Loop`, `Break`, `Continue`, `Discard`, `Return`, `glslFn`, `wgslFn` | Deferred/unsupported as standalone ops; closures/code/ordering cannot be inferred from data. A named consumer-defined data adapter may select predefined behavior, never execute file-provided code. |
 | Higher-level function libraries | `checker`, `hash`, `triNoise3D`, `mx_*`, BRDF/BSDF, fog, packing, oscillators, UV helpers, shapes, skinning/morph/instance/batch helpers | Inspect the returned graph, not the API name. Pure helpers that lower entirely to supported nodes work; many emit ShaderCallNodeInternal, context/renderer nodes or unsupported bit/packing classes. They are deferred when those classes occur, for the reasons in the matrix. A paired adapter can select a predefined consumer implementation and data parameters. No generic function invocation/deserialization exists. |
 
 ## Implementation boundary and failure behavior
 
-The new allowlist adds 12 classes: component construction/conversion, arrays,
-conditional expressions, variables, varyings/sub-builds and rotation. It reuses
+Issue #15 added 12 classes: component construction/conversion, arrays,
+conditional expressions, variables, varyings/sub-builds and rotation. Issue #17
+adds ordinary 2D TextureNode and two query classes, with explicit resource state
+and private post-hydration validation before publication. It reuses
 Three.js serialize/deserialize where fields exist and records small explicit
 constructor fields where they do not. Child discovery is checked against each
 adapter; the graph writer owns traversal, sharing and cycle detection. No shader
@@ -137,8 +141,9 @@ runtime behavior without recursively serializing their internals. New-adapter
 array inputs must be dense arrays of nodes; arbitrary nested object/array/resource
 links remain supported through explicit adapters and are tested separately.
 
-Texture/accessor links are existing Draft v2.0 capabilities, not evidence of
-default TextureNode/BufferNode coverage. See the
+Texture/accessor links are existing Draft v2.0 capabilities. TextureNode now has
+the [paired constrained 2D defaults](texture-node-support.md); BufferNode still
+requires an adapter. See the
 [exporter adapter contract](../packages/exporter/README.md#supported-scope) and
 [loader resolver contract](../packages/loader/README.md#supported-scope).
 
@@ -157,5 +162,7 @@ whole-material fallback. Existing custom nested texture/accessor tests remain.
 
 Required commands and outcomes for this issue are recorded in
 [the validation report](tsl-node-coverage-validation.md).
+Issue #17's texture subset and actual check outcomes are recorded in the
+[texture audit and validation](texture-node-support.md#validation).
 Browser/WebGPU visual checks were not run. Node shader generation and integration
 tests do not compile GPU programs or validate rendered pixels.
