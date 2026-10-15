@@ -18,6 +18,9 @@ Reference implementations for Three.js are available as separate packages:
 - Loader plugin: https://www.npmjs.com/package/@takahirox/gltf-three-materials-tsl-loader
 - Exporter plugin: https://www.npmjs.com/package/@takahirox/gltf-three-materials-tsl-exporter
 
+See the [r186 node coverage matrix](docs/tsl-node-coverage.md) for tested defaults,
+shared TSL objects and deferred families with adapter paths.
+
 Install:
 
 ```sh

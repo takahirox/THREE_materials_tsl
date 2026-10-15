@@ -4,7 +4,8 @@ import { MeshBasicNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMateri
 import type { GLTF, GLTFParser } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-export type NodeResolver = (op: string, args?: JsonValue) => unknown;
+// The optional third argument contains encoded links, before graph hydration.
+export type NodeResolver = (op: string, args?: JsonValue, links?: Record<string, unknown>) => unknown;
 export type MaterialTypes = Record<string, new () => NodeMaterial>;
 export type ExtensionDefinition = {
   version: '2.0';
@@ -163,7 +164,7 @@ export class THREEMaterialsTSLLoaderPlugin {
       if (!hasOwn(extension.nodes, id)) throw new Error(`Missing node "${id}"`);
       const def = extension.nodes[id];
       resolving.add(id);
-      const factory = this.options.nodeResolver(def.op, def.args);
+      const factory = this.options.nodeResolver(def.op, def.args, def.links);
       let node: unknown = factory;
       if (typeof factory === 'function') {
         const args = def.args === undefined ? [] : Array.isArray(def.args) ? def.args : [def.args];

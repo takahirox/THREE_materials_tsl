@@ -3,7 +3,14 @@ import {
   BoxGeometry, BufferAttribute, Color, DoubleSide, Mesh, Scene, Texture,
   MeshPhysicalMaterial, MeshStandardMaterial, Vector2, Vector3, Vector4, Matrix3, Matrix4
 } from 'three';
-import { ConstNode, MeshBasicNodeMaterial, MeshStandardNodeMaterial, MeshPhysicalNodeMaterial } from 'three/webgpu';
+import {
+  ConstNode, MeshBasicNodeMaterial, MeshStandardNodeMaterial, MeshPhysicalNodeMaterial,
+  ArrayNode, ArrayElementNode, ConditionalNode, ConvertNode, FlipNode, JoinNode,
+  RotateNode, SetNode, SplitNode, SubBuildNode, VaryingNode, VarNode, TextureNode, BufferNode,
+  CodeNode, ExpressionNode
+} from 'three/webgpu';
+import * as TSL from 'three/tsl';
+import GLSLNodeBuilder from 'three/src/renderers/webgl-fallback/nodes/GLSLNodeBuilder.js';
 import { materialColor, time } from 'three/tsl';
 import UniformNode from 'three/src/nodes/core/UniformNode.js';
 import NodeBuilder from 'three/src/nodes/core/NodeBuilder.js';
@@ -223,6 +230,7 @@ const failures = {
   'fractional accessor': (e) => { e.nodes.factor.links = { value: { $refAccessor: 0.5 } }; },
   'ambiguous reference': (e) => { e.nodes.factor.links = { value: { $ref: 'color', $refAccessor: 0 } }; },
   'unsupported entrypoint': (e) => { e.entrypoints.color = 'color'; },
+  'shared instance arguments': (e) => { e.nodes.color.args = { value: 0.5 }; },
   'shared instance mutation': (e) => { e.nodes.color.links = { scope: { $ref: 'factor' } }; }
 };
 
@@ -326,7 +334,7 @@ describe.each(['ConstNode', 'UniformNode'])('%s without nodeType', (op) => {
     expect(node.precision).toBe('high');
     // r186 reads renderer diagnostics when registering uniform declarations.
     // Supply only that setting; literal generation still uses the real NodeBuilder.
-    const builder = new NodeBuilder(null, { debug: { diagnostics: { keywords: false } } }, null);
+    const builder = new NodeBuilder(null, { backend: { isWebGPUBackend: false }, debug: { diagnostics: { keywords: false } } }, null);
     builder.setShaderStage('fragment');
     expect(node.getNodeType(builder)).toBe(valueType);
     const snippet = node.generate(builder, valueType);
@@ -516,4 +524,260 @@ it('exports ordinary values for a NodeMaterial with no graph and leaves input ma
   expect(source.color).toBe(color);
   expect(source.type).toBe('MeshPhysicalNodeMaterial');
   expect(source.colorNode).toBeNull();
+});
+
+const dataNodeCases = [
+  ['VarNode', (vector) => new VarNode(vector, 'paint', true).setIntent(false), 'vec3'],
+  ['SplitNode', (vector) => new SplitNode(vector, 'zyx'), 'vec3'],
+  ['JoinNode', (_, scalar) => new JoinNode([scalar, scalar, scalar], 'vec3'), 'vec3'],
+  ['ConvertNode', (vector) => new ConvertNode(vector, 'ivec3|vec3'), 'vec3'],
+  ['SetNode', (vector) => new SetNode(vector, 'xy', new ConstNode(new Vector2(0.8, 0.9))), 'vec3'],
+  ['FlipNode', (vector) => new FlipNode(vector, 'xz'), 'vec3'],
+  ['ArrayNode', (vector) => new ArrayNode(null, 2, [vector, vector]), 'vec3'],
+  ['ArrayElementNode', (vector) => new ArrayElementNode(new ArrayNode('vec3', 2, [vector, vector]), new ConstNode(1, 'uint')), 'vec3'],
+  ['ConditionalNode', (vector) => new ConditionalNode(new ConstNode(true), vector, vector), 'vec3'],
+  ['RotateNode', (vector) => new RotateNode(vector, new ConstNode(new Vector3(0.1, 0.2, 0.3)), 'ZYX'), 'vec3'],
+  ['SubBuild', (vector) => new SubBuildNode(vector, 'VERTEX', 'vec3'), 'vec3'],
+  ['VaryingNode', (vector) => new VaryingNode(vector, 'vPaint').setInterpolation('linear', 'centroid'), 'vec3']
+];
+
+function shaderFlow(node, output = 'vec3') {
+  // Three.js's real GLSL builder, through setup/analyze/generate. Only its
+  // diagnostics settings are needed for these resource-free expression graphs.
+  const builder = new GLSLNodeBuilder(null, { backend: { isWebGPUBackend: false }, debug: { diagnostics: { keywords: false } } });
+  builder.setShaderStage('fragment');
+  const flow = builder.flowStagesNode(node, output);
+  return { result: flow.result, code: flow.code, vertex: builder.flowCode.vertex };
+}
+
+it.each(dataNodeCases)('round-trips %s twice with fields, shared references and matching shader generation', async (op, make, type) => {
+  const vector = new ConstNode(new Vector3(0.2, 0.4, 0.6), 'vec3');
+  const scalar = new ConstNode(0.25, 'float');
+  const source = new MeshStandardNodeMaterial();
+  source.colorNode = make(vector, scalar);
+  source.colorNode.global = !source.colorNode.global;
+  source.colorNode.name ||= 'coverageName';
+  source.emissiveNode = source.colorNode;
+  const expectedFlow = shaderFlow(source.colorNode, type);
+  expect(expectedFlow.result).toBeTruthy();
+  let json = await exportScene(sceneWith(source));
+  const original = json.materials[0].extensions[extensionName];
+  expect(original.nodes.n0.op).toBe(op);
+  for (let round = 0; round < 2; round++) {
+    const errors = [];
+    const gltf = await load(json, { onError: (error) => errors.push(error) });
+    expect(errors).toEqual([]);
+    const material = meshes(gltf.scene)[0].material;
+    const node = material.colorNode;
+    expect(node.constructor).toBe(source.colorNode.constructor);
+    expect(node).toBe(material.emissiveNode);
+    expect(node.name).toBe(source.colorNode.name);
+    expect(node.global).toBe(source.colorNode.global);
+    expect(node.nodeType).toBe(source.colorNode.nodeType);
+    if (op === 'JoinNode') expect(node.nodes[0]).toBe(node.nodes[2]);
+    if (op === 'ArrayNode') {
+      expect(node.values[0]).toBe(node.values[1]);
+      expect(node.getArrayCount()).toBe(2);
+    }
+    if (op === 'ArrayElementNode') expect(node.node.values[0]).toBe(node.node.values[1]);
+    if (op === 'ConditionalNode') expect(node.ifNode).toBe(node.elseNode);
+    if (op === 'RotateNode') expect(node.getOrder()).toBe('ZYX');
+    if (op === 'VaryingNode') {
+      expect(node.node.type).toBe('SubBuild');
+      expect(node.node.name).toBe('VERTEX');
+      expect(node.interpolationType).toBe('linear');
+      expect(node.interpolationSampling).toBe('centroid');
+    }
+    expect(shaderFlow(node, type)).toEqual(expectedFlow);
+    json = await exportScene(gltf.scene);
+    expect(json.materials[0].extensions[extensionName]).toEqual(original);
+  }
+});
+
+it('round-trips normal TSL fluent expressions with dynamic shared accessors', async () => {
+  const source = new MeshStandardNodeMaterial();
+  source.colorNode = TSL.vec3(TSL.materialColor.rg, TSL.time.sin()).flipY().setZ(TSL.float(0.5));
+  source.positionNode = TSL.positionLocal.toVarying('vPosition');
+  let json = await exportScene(sceneWith(source));
+  const original = json.materials[0].extensions[extensionName];
+  for (let round = 0; round < 2; round++) {
+    const errors = [];
+    const gltf = await load(json, { onError: (error) => errors.push(error) });
+    expect(errors).toEqual([]);
+    const node = meshes(gltf.scene)[0].material.colorNode;
+    expect(node.sourceNode.sourceNode.node.nodes[0].node).toBe(materialColor);
+    expect(node.sourceNode.sourceNode.node.nodes[1].node.aNode).toBe(time);
+    expect(meshes(gltf.scene)[0].material.positionNode.node.node).toBe(TSL.positionLocal);
+    // The original material reference still observes runtime material changes.
+    const dynamic = node.sourceNode.sourceNode.node.nodes[0].node;
+    expectDynamicColor({ colorNode: dynamic, color: new Color(0.3, 0.4, 0.5) });
+    json = await exportScene(gltf.scene);
+    expect(json.materials[0].extensions[extensionName]).toEqual(original);
+  }
+});
+
+it.each([
+  ['default-initialized array', () => new ArrayNode('float', 3)],
+  ['if without else', () => new ConditionalNode(new ConstNode(true), new ConstNode(0.6))],
+  ['2D rotation', () => new RotateNode(new ConstNode(new Vector2(0.4, 0.6)), new ConstNode(0.7))],
+  ['unnamed varying with default interpolation', () => new VaryingNode(new ConstNode(0.5))]
+])('preserves %s across repeated round trips', async (_, make) => {
+  const source = new MeshStandardNodeMaterial();
+  source.colorNode = make();
+  let json = await exportScene(sceneWith(source));
+  const expected = json.materials[0].extensions[extensionName];
+  for (let round = 0; round < 2; round++) {
+    const errors = [];
+    const gltf = await load(json, { onError: (error) => errors.push(error) });
+    expect(errors).toEqual([]);
+    const actual = meshes(gltf.scene)[0].material.colorNode;
+    if (actual.type === 'ArrayNode') expect(actual.values).toBeNull();
+    if (actual.type === 'ConditionalNode') expect(actual.elseNode).toBeNull();
+    if (actual.type === 'VaryingNode') expect(actual.interpolationType).toBeNull();
+    json = await exportScene(gltf.scene);
+    expect(json.materials[0].extensions[extensionName]).toEqual(expected);
+  }
+});
+
+const expressionNodes = [
+  ['unary math', () => new MathNode('sin', new ConstNode(0.5))],
+  ['binary math', () => new MathNode('pow', new ConstNode(0.5), new ConstNode(2))],
+  ['ternary math', () => new MathNode('mix', new ConstNode(0.2), new ConstNode(0.8), new ConstNode(0.5))],
+  ['unary atan', () => new MathNode('atan', new ConstNode(0.5))],
+  ['binary atan', () => new MathNode('atan', new ConstNode(0.5), new ConstNode(1))],
+  ['binary operator', () => new OperatorNode('+', new ConstNode(0.5), new ConstNode(1))],
+  ['unary operator', () => new OperatorNode('~', new ConstNode(1, 'int'))]
+];
+
+it.each(expressionNodes)('preserves nested %s inputs across repeated round trips', async (_, make) => {
+  const source = new MeshStandardNodeMaterial();
+  source.colorNode = new SplitNode(make(), 'x');
+  let json = await exportScene(sceneWith(source));
+  const expected = json.materials[0].extensions[extensionName];
+  for (let round = 0; round < 2; round++) {
+    const errors = [];
+    const imported = await load(json, { onError: (error) => errors.push(error) });
+    expect(errors).toEqual([]);
+    const material = meshes(imported.scene)[0].material;
+    expect(material.type).toBe('MeshStandardNodeMaterial');
+    expect(material.colorNode.node.aNode.value).toBe(make().aNode.value);
+    json = await exportScene(imported.scene);
+    expect(json.materials[0].extensions[extensionName]).toEqual(expected);
+  }
+});
+
+const invalidExpressionLinks = [
+  ...expressionNodes.map(([name, make]) => [`${name} without links`, make, (node) => { delete node.links; }]),
+  ['binary math missing bNode', expressionNodes[1][1], (node) => { delete node.links.bNode; }],
+  ['ternary math missing cNode', expressionNodes[2][1], (node) => { delete node.links.cNode; }],
+  ['binary operator missing bNode', expressionNodes[5][1], (node) => { delete node.links.bNode; }],
+  ['unary math with extra input', expressionNodes[0][1], (node) => { node.links.bNode = node.links.aNode; }],
+  ['binary math with extra input', expressionNodes[1][1], (node) => { node.links.cNode = node.links.aNode; }],
+  ['unary operator with extra input', expressionNodes[6][1], (node) => { node.links.bNode = node.links.aNode; }],
+  ['unknown math method', expressionNodes[0][1], (node) => { node.args.method = 'unknown'; }],
+  ['unknown operator', expressionNodes[5][1], (node) => { node.args.op = 'unknown'; }],
+  ...['MathNode', 'OperatorNode'].flatMap((op) => [
+    ['array input', (ref) => [ref]],
+    ['nested input', (ref) => ({ nested: ref })],
+    ['resource input', () => ({ $refAccessor: 0 })],
+    ['reference with extra fields', (ref) => ({ ...ref, extra: true })]
+  ].map(([name, corrupt]) => [`${op} ${name}`, op === 'MathNode' ? expressionNodes[0][1] : expressionNodes[5][1],
+    (node) => { node.links.aNode = corrupt(node.links.aNode); }]))
+];
+
+it.each(invalidExpressionLinks)('uses whole-material fallback for nested %s', async (_, make, corrupt) => {
+  const source = configure(new MeshPhysicalNodeMaterial());
+  source.colorNode = new SplitNode(make(), 'x');
+  source.roughnessNode = new ConstNode(0.4);
+  const json = await exportScene(sceneWith(source));
+  const extension = json.materials[0].extensions[extensionName];
+  corrupt(extension.nodes[extension.nodes[extension.entrypoints.colorNode].links.node.$ref]);
+  const ordinary = await load(json, {}, false);
+  const errors = [];
+  const imported = await load(json, { onError: (error) => errors.push(error) });
+  expect(errors).toHaveLength(1);
+  const material = meshes(imported.scene)[0].material;
+  expect(material.type).toBe('MeshPhysicalMaterial');
+  expect(material.colorNode).toBeUndefined();
+  expect(material.roughnessNode).toBeUndefined();
+  expectOrdinary(material, meshes(ordinary.scene)[0].material);
+});
+
+it.each([
+  ['ConstNode', () => new ConstNode(1)],
+  ['UniformNode', () => new UniformNode(1)],
+  ['AttributeNode', () => new AttributeNode('position', 'vec3')],
+  ['MathNode', expressionNodes[0][1]],
+  ['OperatorNode', expressionNodes[5][1]],
+  ['SplitNode', () => new SplitNode(new ConstNode(1), 'x')]
+])('rejects private attached graphs on %s during real glTF export', async (_, make) => {
+  for (const attach of [
+    (node) => node.before(new CodeNode('float example;')),
+    (node) => Object.assign(node, { _custom: { nested: [{ input: new ConstNode(2) }] } })
+  ]) {
+    const source = new MeshStandardNodeMaterial();
+    source.colorNode = attach(make());
+    await expect(exportScene(sceneWith(source))).rejects.toThrow(/Unsupported .* link/);
+  }
+});
+
+const invalidDataGraphs = [
+  ['missing required link', (e) => { delete e.nodes.n0.links.node; }],
+  ['unknown link slot', (e) => { e.nodes.n0.links.extra = { $ref: 'n1' }; }],
+  ['resource instead of a node', (e) => { e.nodes.n0.links.node = { $refAccessor: 0 }; }],
+  ['missing node', (e) => { e.nodes.n0.links.node = { $ref: 'missing' }; }],
+  ['cycle', (e) => { e.nodes.n0.links.node = { $ref: 'n0' }; }],
+  ['invalid components', (e) => { e.nodes.n0.args.components = 'xyz; injected()'; }],
+  ['unknown arguments', (e) => { e.nodes.n0.args.customCode = 'arbitrary code'; }],
+  ['invalid type', (e) => { e.nodes.n0.args.nodeType = 'custom_shader_type'; }],
+  ['invalid argument shape', (e) => { e.nodes.n0.args = []; }],
+  ['invalid array shape', (e) => { e.nodes.n0.op = 'JoinNode'; e.nodes.n0.args = {}; e.nodes.n0.links = { nodes: [{ nested: { $ref: 'n1' } }] }; }],
+  ['array count mismatch', (e) => { e.nodes.n0.op = 'ArrayNode'; e.nodes.n0.args = { count: 2 }; e.nodes.n0.links = { values: [{ $ref: 'n1' }] }; }],
+  ['unsupported unreachable code node', (e) => { e.nodes.unreachable = { op: 'CodeNode', args: { code: 'injected()' } }; }]
+];
+it.each(invalidDataGraphs)('uses whole-material fallback for a data node with %s', async (_, corrupt) => {
+  const source = configure(new MeshPhysicalNodeMaterial());
+  source.colorNode = new SplitNode(new ConstNode(new Vector3(0.2, 0.3, 0.4)), 'xyz');
+  source.roughnessNode = new ConstNode(0.4);
+  const json = await exportScene(sceneWith(source));
+  corrupt(json.materials[0].extensions[extensionName]);
+  const ordinary = await load(json, {}, false);
+  const errors = [];
+  const imported = await load(json, { onError: (error) => errors.push(error) });
+  expect(errors).toHaveLength(1);
+  const material = meshes(imported.scene)[0].material;
+  expect(material.type).toBe('MeshPhysicalMaterial');
+  expect(material.colorNode).toBeUndefined();
+  expect(material.roughnessNode).toBeUndefined();
+  expectOrdinary(material, meshes(ordinary.scene)[0].material);
+});
+
+it('rejects incomplete data nodes, unsupported resources/code, callbacks and subclasses on export', async () => {
+  class CustomJoin extends JoinNode {}
+  const extra = new SplitNode(new ConstNode(1), 'x');
+  extra.deep = { nested: [{ input: new ConstNode(2) }] };
+  const cyclic = new JoinNode([]); cyclic.nodes = [cyclic];
+  for (const node of [
+    new SplitNode(undefined, 'x'), new JoinNode([new ConstNode(1), null]),
+    new ArrayNode(null, 2), new ArrayNode('vec3', 0), new ConvertNode(new ConstNode(1), 'bad()'),
+    new TextureNode(new Texture()), new BufferNode(new Float32Array(4), 'float', 4),
+    new CodeNode('arbitrary code'), new ExpressionNode('arbitrary code'),
+    TSL.Fn(() => TSL.float(1))(), new UniformNode(1).onUpdate(() => 2),
+    Object.assign(new UniformNode(1), { groupNode: TSL.frameGroup }),
+    new CustomJoin([new ConstNode(1)]), extra, cyclic
+  ]) {
+    const source = new MeshStandardNodeMaterial(); source.colorNode = node;
+    await expect(exportScene(sceneWith(source))).rejects.toThrow(/Unsupported|Invalid|cyclic/);
+  }
+});
+
+it('resolves every shared TSL node by identity without invoking TSL functions', () => {
+  const serialize = createDefaultNodeSerializer();
+  const resolve = createDefaultNodeResolver();
+  const shared = Object.entries(TSL).filter(([, value]) => value && typeof value === 'object' && value.isNode);
+  expect(shared.length).toBeGreaterThan(100);
+  for (const [, node] of shared) expect(resolve(serialize(node).op)).toBe(node);
+  for (const [name, value] of Object.entries(TSL)) {
+    if (typeof value === 'function') expect(resolve(name)).toBeNull();
+  }
 });

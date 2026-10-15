@@ -49,11 +49,22 @@ support have a usable fallback; arbitrary graphs cannot be baked automatically.
 The default serializer supports shared node objects from `three/tsl` (including
 dynamic `materialColor` and `time`), `ConstNode`/`UniformNode` numeric, boolean,
 color, vector and matrix literals, `AttributeNode`, `MathNode`, and `OperatorNode`.
-It reuses Three.js serialization and child discovery with explicit input
-handling. It preserves shared graph inputs. Unsupported classes or literal
-value types require adapters; arbitrary functions, closures, shader code,
-texture/buffer node classes and renderer resources are not automatically
-serializable. The existing peer dependency range `three >=0.182.0` is retained;
+It also supports `SplitNode`, `JoinNode`, `ConvertNode`, `SetNode`, `FlipNode`,
+`ArrayNode`, `ArrayElementNode`, `ConditionalNode`, `VarNode`, `VaryingNode`,
+`SubBuildNode` (op `SubBuild`), and `RotateNode`. It reuses Three.js serialization
+and child discovery, with explicit fields for state omitted by upstream
+serialization. Shared inputs, array elements, types, variable flags, interpolation
+and Euler order survive repeated round trips.
+
+See the [coverage matrix](../../docs/tsl-node-coverage.md) for the complete audited
+class/family and shared-object inventories, tested boundaries, deferred cases,
+reasons and adapter paths. Texture/buffer node classes, closures, code-backed
+nodes and renderer resources are outside the default allowlist. Some can use
+paired adapters; others need additional resource/control-flow design. Ordinary
+nodes with app-installed callbacks, uniforms with non-default groups, subclasses
+inheriting built-in operation IDs, and unrepresentable inputs fail explicitly.
+Custom code stays consumer-supplied; the file cannot carry executable code.
+The existing peer dependency range `three >=0.182.0` is retained;
 this validation does not establish compatibility with every release in that
 range. Support across Three.js revisions is not guaranteed.
 
