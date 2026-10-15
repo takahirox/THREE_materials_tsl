@@ -35,10 +35,23 @@ function validateArgs(op: string, args: Record<string, unknown>) {
 }
 
 type Element = Node & { node: UniformArrayNode<unknown>; indexNode: Node };
+function validateIndexValues(index: Node, builder: NodeBuilder, seen = new Set<Node>()) {
+  if (seen.has(index)) return;
+  seen.add(index);
+  for (const { childNode } of index.getSerializeChildren()) validateIndexValues(childNode, builder, seen);
+  if (index.type === 'ConstNode' || index.type === 'UniformNode') {
+    const type = index.getNodeType(builder);
+    // InputNode's explicit shader type and stored JS value are independent.
+    // Check descendants too so a wrapper cannot hide an incompatible input.
+    if (['float', 'int', 'uint'].includes(type)) check(numeric((index as Node & { value: unknown }).value, type));
+  }
+}
 function validateElement(node: Element) {
   check(node.node?.type === 'UniformArrayNode' && node.indexNode?.isNode === true);
   const TypeBuilder = NodeBuilder as unknown as new () => NodeBuilder;
-  check(['float', 'int', 'uint'].includes(node.indexNode.getNodeType(new TypeBuilder())));
+  const builder = new TypeBuilder();
+  validateIndexValues(node.indexNode, builder);
+  check(['float', 'int', 'uint'].includes(node.indexNode.getNodeType(builder)));
   // Native indexing converts scalar floats to uint. Static indices must already
   // be integral and in range; dynamic scalar expressions retain native semantics.
   let index = node.indexNode as Node & Record<string, unknown>;

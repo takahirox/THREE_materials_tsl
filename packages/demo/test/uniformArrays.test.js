@@ -1,8 +1,10 @@
 import { beforeAll, afterAll, expect, it, vi } from 'vitest';
 import { BoxGeometry, Mesh, Scene, Color, Vector2, Vector3, Vector4, Matrix3, DoubleSide } from 'three';
 import { MeshPhysicalNodeMaterial, UniformArrayNode, BufferNode, BufferAttributeNode, ArrayNode, ConstNode,
-  NodeFrame, NodeBuilder, GLSLNodeBuilder, WGSLNodeBuilder, StandardNodeLibrary, UniformGroupNode } from 'three/webgpu';
+  NodeFrame, NodeBuilder, GLSLNodeBuilder, WGSLNodeBuilder, StandardNodeLibrary, UniformGroupNode,
+  UniformNode, AttributeNode, MathNode, OperatorNode, VarNode, ConvertNode, SubBuildNode } from 'three/webgpu';
 import SourceUniformArrayNode from 'three/src/nodes/accessors/UniformArrayNode.js';
+import SourceUniformNode from 'three/src/nodes/core/UniformNode.js';
 import * as TSL from 'three/tsl';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -188,6 +190,69 @@ it.each([123, {}, [], true, null, '', undefined])('rejects malformed attribute i
   }
 });
 
+const indexForms = [
+  ['direct', (node) => node],
+  ['VarNode', (node) => new VarNode(node)],
+  ['ConvertNode', (node) => new ConvertNode(node, 'uint')],
+  ['SubBuild', (node) => new SubBuildNode(node, 'arrayIndex')],
+  ['OperatorNode', (node) => new OperatorNode('+', node, new ConstNode(0))]
+];
+it.each(indexForms)('preserves valid scalar uniform indices through %s twice', async (_, wrap) => {
+  for (const Ctor of [UniformNode, SourceUniformNode]) for (const type of [null, 'float', 'int', 'uint']) {
+    const m = new MeshPhysicalNodeMaterial();
+    m.roughnessNode = new Ctor(1, type);
+    m.colorNode = TSL.uniformArray([0.2, 0.8]).element(wrap(m.roughnessNode));
+    let scene = sceneWith(m);
+    for (let round = 0; round < 2; round++) {
+      const errors = []; const gltf = await load(await exportScene(scene), errors);
+      expect(errors).toEqual([]);
+      const actual = meshes(gltf.scene)[0].material;
+      expect(actual.roughnessNode.value).toBe(1);
+      expect(actual.roughnessNode.nodeType).toBe(type);
+      const index = actual.colorNode.indexNode;
+      expect(index === actual.roughnessNode || index.node === actual.roughnessNode || index.aNode === actual.roughnessNode).toBe(true);
+      scene = gltf.scene;
+    }
+  }
+});
+
+const invalidScalarInputs = [
+  [new Vector2(0, 1), 'vec2', 'uint'],
+  [new Color(0, 1, 0), 'color', 'float'],
+  [true, 'bool', 'int'],
+  [0.5, 'float', 'int'],
+  [-1, 'float', 'uint'],
+  [2147483648, 'float', 'int'],
+  [4294967296, 'float', 'uint']
+];
+it.each(indexForms)('rejects incompatible scalar input values through %s on export', async (_, wrap) => {
+  for (const Ctor of [ConstNode, UniformNode]) for (const [value, , type] of invalidScalarInputs) {
+    const m = new MeshPhysicalNodeMaterial();
+    m.colorNode = TSL.uniformArray([0.2, 0.8]).element(wrap(new Ctor(value, type)));
+    await expect(exportScene(sceneWith(m))).rejects.toThrow();
+  }
+});
+
+const nativeIndexClasses = [
+  [UniformNode, [0, 'uint']], [SourceUniformNode, [0, 'uint']], [ConstNode, [0, 'uint']],
+  [AttributeNode, ['customIndex', 'uint']],
+  [MathNode, ['abs', new ConstNode(0)]],
+  [OperatorNode, ['+', new ConstNode(0), new ConstNode(0)]],
+  [VarNode, [new ConstNode(0)]], [ConvertNode, [new ConstNode(0), 'uint']],
+  [SubBuildNode, [new ConstNode(0), 'arrayIndex']]
+];
+it.each(indexForms)('rejects built-in index subclasses with forged operation IDs through %s', async (_, wrap) => {
+  for (const [Base, args] of nativeIndexClasses) {
+    class CustomIndex extends Base {
+      static get type() { return Base.type; }
+      generate() { return '1u'; }
+    }
+    const m = new MeshPhysicalNodeMaterial();
+    m.colorNode = TSL.uniformArray([0.2, 0.8]).element(wrap(new CustomIndex(...args)));
+    await expect(exportScene(sceneWith(m))).rejects.toThrow();
+  }
+});
+
 const invalidExports = [
   ...[[], Array(4097).fill(1), [NaN], [Infinity], [1e40], [-0], [true], [null], [1, new Vector2()], new Float32Array([1])].map((v) => () => TSL.uniformArray(v, 'float')),
   ...[['int', [1.5]], ['int', [-2147483649]], ['int', [2147483648]], ['uint', [-1]], ['uint', [4294967296]],
@@ -234,6 +299,25 @@ it.each(invalidExports.map((create, i) => [i, create]))('rejects unsupported exp
 });
 
 const invalidImports = [
+  ...['ConstNode', 'UniformNode'].flatMap((op) => indexForms.flatMap(([form]) =>
+    invalidScalarInputs.map(([value, valueType, nodeType]) => (e, p, n) => {
+      e.nodes.badIndex = { op, args: { value: value.toArray ? value.toArray() : value, valueType, nodeType, precision: null } };
+      let ref = 'badIndex';
+      if (form !== 'direct') {
+        const args = { nodeType: null, name: null, global: false, parents: false };
+        let links = { node: { $ref: ref } };
+        if (form === 'VarNode') Object.assign(args, { global: true, readOnly: false, intent: false });
+        if (form === 'ConvertNode') args.convertTo = 'uint';
+        if (form === 'SubBuild') args.name = 'arrayIndex';
+        if (form === 'OperatorNode') {
+          e.nodes.zero = { op: 'ConstNode', args: { value: 0, valueType: 'float', nodeType: null, precision: null } };
+          links = { aNode: { $ref: ref }, bNode: { $ref: 'zero' } };
+        }
+        e.nodes.wrappedIndex = { op: form, args: form === 'OperatorNode' ? { op: '+' } : args, links };
+        ref = 'wrappedIndex';
+      }
+      n.links.indexNode = { $ref: ref };
+    }))),
   (e, p) => { p.args.array = []; }, (e, p) => { p.args.array = Array(4097).fill(1); },
   (e, p) => { p.args.array = [null]; }, (e, p) => { p.args.array = [[1]]; },
   (e, p) => { p.args.array = [1e40]; }, (e, p) => { p.args.array = [true]; },

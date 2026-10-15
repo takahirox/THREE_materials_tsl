@@ -2,7 +2,10 @@ import SourceUniformArrayNode from 'three/src/nodes/accessors/UniformArrayNode.j
 import { objectGroup } from 'three/tsl';
 import { objectGroup as sourceObjectGroup } from 'three/src/nodes/core/UniformGroupNode.js';
 import { validateNodeLinks } from './nodeLinks.js';
+import { getSharedTSLNodeName } from './sharedNodes.js';
 import type { JsonValue, NodeExport } from './types.js';
+import * as NativeNodes from 'three/webgpu';
+import * as SourceNodes from 'three/src/nodes/Nodes.js';
 
 import { Color, Vector2, Vector3, Vector4 } from 'three';
 import { UniformArrayNode, ConstNode, NodeBuilder } from 'three/webgpu';
@@ -40,10 +43,35 @@ function validateArgs(op: string, args: Record<string, unknown>) {
 }
 
 type Element = Node & { node: UniformArrayNode<unknown>; indexNode: Node };
+// Match native prototypes, not constructor names or forgeable static type IDs.
+// Source and bundled Three.js classes are distinct but both are supported.
+const nativeIndexTypes = new Map<object, string>();
+for (const Ctor of [...Object.values(NativeNodes), ...Object.values(SourceNodes)]) {
+  if (typeof Ctor === 'function' && Ctor.prototype && Object.prototype.hasOwnProperty.call(Ctor, 'type')) {
+    nativeIndexTypes.set(Ctor.prototype, (Ctor as unknown as { type: string }).type);
+  }
+}
+function validateIndexGraph(index: Node, builder: NodeBuilder, seen = new Set<Node>()) {
+  if (seen.has(index)) return;
+  seen.add(index);
+  // Shared exports retain native behavior and are never reconstructed as ordinary nodes.
+  if (getSharedTSLNodeName(index)) return;
+  check(nativeIndexTypes.get(Object.getPrototypeOf(index)) === index.type ||
+    elementTemplates.some((template) => Object.getPrototypeOf(index) === Object.getPrototypeOf(template)));
+  for (const { childNode } of index.getSerializeChildren()) validateIndexGraph(childNode, builder, seen);
+  if (index.type === 'ConstNode' || index.type === 'UniformNode') {
+    const type = index.getNodeType(builder);
+    // An explicit scalar shader type does not make a vector/bool input scalar.
+    // Inspect every input, including those under wrappers and expressions.
+    if (['float', 'int', 'uint'].includes(type)) check(numeric((index as Node & { value: unknown }).value, type));
+  }
+}
 function validateElement(node: Element) {
   check(node.node?.type === 'UniformArrayNode' && node.indexNode?.isNode === true);
   const TypeBuilder = NodeBuilder as unknown as new () => NodeBuilder;
-  check(['float', 'int', 'uint'].includes(node.indexNode.getNodeType(new TypeBuilder())));
+  const builder = new TypeBuilder();
+  validateIndexGraph(node.indexNode, builder);
+  check(['float', 'int', 'uint'].includes(node.indexNode.getNodeType(builder)));
   // Native indexing converts scalar floats to uint. Static indices must already
   // be integral and in range; dynamic scalar expressions retain native semantics.
   let index = node.indexNode as Node & Record<string, unknown>;
