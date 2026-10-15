@@ -30,6 +30,14 @@ const check = (valid: unknown) => { if (!valid) throw new Error('Invalid or unsu
 export const isReferenceNodeOp = (op: string) => ['MaterialNode', 'ModelNode', 'MaterialReferenceNode', 'Object3DNode'].includes(op);
 const defaults = new WeakSet<object>();
 
+function referenceProperties(node: Record<string, unknown>, material: Record<string, unknown>): string[] {
+  if (node.type === 'MaterialReferenceNode') return [node.property as string];
+  if (node.type !== 'MaterialNode') return [];
+  if (node.scope === 'normal') return material.normalMap ? ['normalScale'] : [];
+  if (node.scope === 'clearcoatNormal') return material.clearcoatNormalMap ? ['clearcoatNormalScale'] : [];
+  return materialScopes[node.scope as string];
+}
+
 function validateArgs(op: string, args: Record<string, unknown>) {
   const fields = op === 'MaterialReferenceNode' ? ['property', 'uniformType'] : ['scope'];
   check(Object.keys(args).every((key) => [...fields, 'nodeType', 'name', 'global', 'parents'].includes(key)));
@@ -64,9 +72,7 @@ export function validateReferenceMaterial(value: object, material: object) {
       }
     }
   }
-  const properties = node.type === 'MaterialNode' ?
-    (node.scope === 'normal' && target.normalMap ? ['normalScale'] : materialScopes[node.scope as string]) :
-    node.type === 'MaterialReferenceNode' ? [node.property as string] : [];
+  const properties = referenceProperties(node, target);
   for (const property of properties) {
     const v = target[property];
     const type = materialProperties[property];

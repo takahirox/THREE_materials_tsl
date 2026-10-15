@@ -4,7 +4,7 @@ import { BoxGeometry, Mesh, Scene, PerspectiveCamera, Color, Vector2, Vector3, F
   MirroredRepeatWrapping, NearestFilter } from 'three';
 import { createCanvas, CanvasElement, Image, ImageData, loadImage } from '@napi-rs/canvas';
 import { MaterialNode, ModelNode, Object3DNode, MaterialReferenceNode, MeshPhysicalNodeMaterial,
-  MeshBasicNodeMaterial, NodeFrame, GLSLNodeBuilder, StandardNodeLibrary } from 'three/webgpu';
+  MeshBasicNodeMaterial, MeshStandardNodeMaterial, NodeFrame, GLSLNodeBuilder, StandardNodeLibrary } from 'three/webgpu';
 import * as TSL from 'three/tsl';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -288,6 +288,29 @@ it.each(['normalScale', 'clearcoatNormalScale'])('checks %s magnitudes and signs
     source[property].set(2, -2);
     const shared = sceneWith(source, source); shared.children[1].geometry.computeTangents();
     await expect(exportScene(shared)).rejects.toThrow(/reference/);
+  }
+});
+
+it.each([MeshBasicNodeMaterial, MeshStandardNodeMaterial].map((Material) => [Material.type, Material]))('preserves clearcoatNormal without a map across two round trips: %s', async (_, Material) => {
+  const source = new Material();
+  source.colorNode = new MaterialNode('clearcoatNormal');
+  expect(source.clearcoatNormalMap).toBeUndefined();
+  expect(source.clearcoatNormalScale).toBeUndefined();
+  const scene = sceneWith(source); const expected = shader(source.colorNode, scene.children[0]).code;
+  let json = await exportScene(scene); const graph = json.materials[0].extensions[extensionName];
+  for (let round = 0; round < 2; round++) {
+    const errors = []; const gltf = await load(json, errors);
+    expect(errors).toEqual([]);
+    const mesh = meshes(gltf.scene)[0]; const material = mesh.material;
+    expect(material).toBeInstanceOf(Material);
+    expect(material.colorNode).toBeInstanceOf(MaterialNode);
+    expect(material.colorNode.scope).toBe('clearcoatNormal');
+    expect(material.clearcoatNormalMap).toBeUndefined();
+    expect(material.clearcoatNormalScale).toBeUndefined();
+    expect(material.colorNode.setup(shader(material.colorNode, mesh).builder)).toBe(TSL.normalView);
+    expect(shader(material.colorNode, mesh).code).toEqual(expected);
+    json = await exportScene(gltf.scene);
+    expect(json.materials[0].extensions[extensionName]).toEqual(graph);
   }
 });
 
