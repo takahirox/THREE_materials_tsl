@@ -35,11 +35,26 @@ function validateIndexInput(value: unknown, type: string) {
   const shape = vector ? `vec${vector[2]}` : type;
   const Ctor = inputClasses[shape as keyof typeof inputClasses];
   check(Ctor && value && Object.getPrototypeOf(value) === Ctor.prototype);
+  // InputNode.serialize() calls value.toArray(). Only ordinary native data
+  // objects are safe: an own override can encode a different index value.
+  const componentKeys = type === 'color' ? ['r', 'g', 'b'] : ['x', 'y', 'z', 'w'].slice(0, Number(vector?.[2]));
+  const allowed = matrix ? ['elements'] : [...componentKeys, ...(type === 'color' ? ['isColor'] : [])];
+  check(Object.getOwnPropertySymbols(value as object).length === 0);
+  for (const key of Object.getOwnPropertyNames(value)) {
+    check(allowed.includes(key) && 'value' in Object.getOwnPropertyDescriptor(value, key)!);
+  }
+  if (type === 'color') check(Object.getOwnPropertyDescriptor(value, 'isColor')?.value === true);
   const data = value as Record<string, unknown>;
-  const components = matrix ? data.elements :
-    (type === 'color' ? ['r', 'g', 'b'] : ['x', 'y', 'z', 'w'].slice(0, Number(vector?.[2])))
-      .map((key) => Object.getOwnPropertyDescriptor(value, key)?.value);
+  const components = matrix ? data.elements : componentKeys.map((key) => Object.getOwnPropertyDescriptor(value, key)?.value);
   const count = matrix ? Number(matrix[1]) ** 2 : type === 'color' ? 3 : Number(vector?.[2]);
+  if (matrix) {
+    check(Array.isArray(components) && Object.getPrototypeOf(components) === Array.prototype);
+    check(Object.getOwnPropertySymbols(components as object).length === 0);
+    for (const key of Object.getOwnPropertyNames(components)) {
+      check((key === 'length' || (/^(0|[1-9][0-9]*)$/.test(key) && Number(key) < count)) &&
+        'value' in Object.getOwnPropertyDescriptor(components, key)!);
+    }
+  }
   const componentType = vector?.[1] === 'i' ? 'int' : vector?.[1] === 'u' ? 'uint' : 'float';
   check(Array.isArray(components) && components.length === count && Array.from(components).every((component) =>
     numeric(component, componentType)));

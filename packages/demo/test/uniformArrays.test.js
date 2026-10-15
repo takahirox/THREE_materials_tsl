@@ -309,6 +309,53 @@ it.each([['ConstNode', ConstNode], ['UniformNode', UniformNode], ['source ConstN
   }
 });
 
+it.each([['ConstNode', ConstNode], ['UniformNode', UniformNode], ['source ConstNode', SourceConstNode], ['source UniformNode', SourceUniformNode]])('rejects an index value serialization override after two real round trips for %s', async (_, Ctor) => {
+  const m = new MeshPhysicalNodeMaterial();
+  m.roughnessNode = new Ctor(new Vector2(0, 1));
+  m.colorNode = TSL.uniformArray([0.2, 0.8]).element(new SplitNode(m.roughnessNode, 'x'));
+  let scene = sceneWith(m), actual;
+  for (let round = 0; round < 2; round++) {
+    const errors = []; const gltf = await load(await exportScene(scene), errors);
+    expect(errors).toEqual([]);
+    actual = meshes(gltf.scene)[0].material;
+    expect(actual.colorNode.indexNode.node).toBe(actual.roughnessNode);
+    expect(actual.roughnessNode.value).toEqual(new Vector2(0, 1));
+    scene = gltf.scene;
+  }
+  // Native InputNode serialization would call this and change index x to 1.
+  const toArray = vi.fn(() => [1, 0]);
+  actual.roughnessNode.value.toArray = toArray;
+  await expect(exportScene(scene)).rejects.toThrow(/unsupported uniform array/);
+  expect(toArray).not.toHaveBeenCalled();
+});
+
+it.each([['ConstNode', ConstNode], ['UniformNode', UniformNode], ['source ConstNode', SourceConstNode], ['source UniformNode', SourceUniformNode]])('rejects decorated color, vector and matrix index values for %s', async (_, Ctor) => {
+  const inputs = [
+    [() => new Vector2(0, 1), 'vec2', 'x'], [() => new Vector3(0, 1, 0), 'vec3', 'x'],
+    [() => new Vector4(0, 1, 0, 1), 'vec4', 'x'], [() => new Color(0, 1, 0), 'color', 'r'],
+    [() => new Matrix3(), 'mat3', 'elements'], [() => new Matrix4(), 'mat4', 'elements']
+  ];
+  for (const [create, type, component] of inputs) {
+    for (const nested of type.startsWith('mat') ? [false, true] : [false]) for (const decorate of [
+      (value, callback) => Object.defineProperty(value, 'toArray', { value: callback }),
+      (value, callback) => Object.defineProperty(value, 'toArray', { get: callback }),
+      (value, callback) => Object.defineProperty(value, nested ? '0' : component, { get: callback }),
+      (value) => { value.extra = 1; },
+      (value) => { value[Symbol('extra')] = 1; }
+    ]) {
+      const value = create(), callback = vi.fn(() => { throw new Error('Unexpected value callback'); });
+      decorate(nested ? value.elements : value, callback);
+      const input = new Ctor(value, type);
+      const projected = type.startsWith('mat') ? new OperatorNode('*', input,
+        new ConstNode(type === 'mat3' ? new Vector3(0, 1, 0) : new Vector4(0, 1, 0, 1))) : input;
+      const material = new MeshPhysicalNodeMaterial();
+      material.colorNode = TSL.uniformArray([0.2, 0.8]).element(new SplitNode(projected, 'x'));
+      await expect(exportScene(sceneWith(material)), type).rejects.toThrow(/unsupported uniform array/);
+      expect(callback).not.toHaveBeenCalled();
+    }
+  }
+});
+
 it.each([['ConstNode', ConstNode], ['UniformNode', UniformNode], ['source ConstNode', SourceConstNode], ['source UniformNode', SourceUniformNode]])('preserves valid nonscalar index inputs for %s through two round trips', async (_, Ctor) => {
   const inputs = [
     [new Vector2(0, 1), 'vec2'], [new Vector3(0, 1, 0), 'vec3'],
