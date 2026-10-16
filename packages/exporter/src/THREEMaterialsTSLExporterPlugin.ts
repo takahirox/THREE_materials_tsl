@@ -1,8 +1,9 @@
+import { userDataProperty, validateUserDataMesh, validateUserDataTransport, type UserDataNodeDefinition, type UserDataMeshDefinition } from './userDataNodes.js';
 import { validateGeometryMaterial } from './geometryNodes.js';
 import { validateReferenceMaterial, validateReferenceGeometry } from './referenceNodes.js';
 import { REVISION } from 'three';
 
-import type { BufferAttribute, Material, Mesh, Texture } from 'three';
+import type { BufferAttribute, Material, Mesh, Object3D, Texture } from 'three';
 import type { GLTFWriter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import type { LinkDefinition, LinkValue, NodeDefinition, NodeExport } from './types.js';
 import { validateTextureFallback } from './textureNodes.js';
@@ -36,10 +37,46 @@ export class THREEMaterialsTSLExporterPlugin {
   private readonly options: THREEMaterialsTSLExporterPluginOptions;
   private readonly resourceReferences: { table: 'textures' | 'accessors'; index: number }[] = [];
   private readonly materialNodes = new WeakMap<Material, Set<object>>();
+  private readonly userDataNodes = new WeakMap<Material, Set<object>>();
 
   constructor(writer: GLTFWriter, options: THREEMaterialsTSLExporterPluginOptions) {
     this.writer = writer;
     this.options = options;
+  }
+
+  beforeParse(input: Object3D | Object3D[]) {
+    // Object extras are serialized before writeMaterialAsync. Preflight native
+    // UserDataNode inputs before JSON.stringify can invoke any extras accessors.
+    const checked = new WeakMap<Material, Set<object>>();
+    const visit = (object: Object3D) => {
+      const mesh = object as Mesh;
+      const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+      for (const material of materials) {
+        if (!this.isNodeMaterial(material)) continue;
+        if (!checked.has(material)) {
+          const nodes = new Set<object>();
+          const seen = new Set<object>();
+          const walk = (value: unknown) => {
+            if (!this.isNodeLike(value) || seen.has(value)) return;
+            seen.add(value);
+            const node = value as import('three/webgpu').Node;
+            if (node.type === 'UserDataNode') {
+              const data = this.options.nodeSerializer(node);
+              if (data?.op === 'UserDataNode' && userDataProperty(node) !== undefined) nodes.add(node);
+              return; // The internal uniform/reference are native runtime caches.
+            }
+            for (const { childNode } of (node.getSerializeChildren?.() ?? [])) walk(childNode);
+          };
+          for (const node of Object.values(this.collectEntrypoints(material) ?? {})) walk(node);
+          checked.set(material, nodes);
+        }
+        for (const node of checked.get(material)!) validateUserDataMesh(node, object);
+      }
+      for (const child of object.children) {
+        if (child.visible || (this.writer as GLTFWriter & { options: { onlyVisible?: boolean } }).options.onlyVisible === false) visit(child);
+      }
+    };
+    for (const object of Array.isArray(input) ? input : [input]) visit(object);
   }
 
   writeMesh(mesh: Mesh) {
@@ -55,9 +92,21 @@ export class THREEMaterialsTSLExporterPlugin {
   afterParse() {
     // References may point to resources emitted by later meshes or animations.
     // GLTFWriter exposes json at runtime; @types/three's declarations omit it.
-    const { json } = this.writer as GLTFWriter & {
-      json: { textures?: unknown[]; accessors?: unknown[] };
+    const { json, nodeMap } = this.writer as GLTFWriter & {
+      json: { textures?: unknown[]; accessors?: unknown[]; nodes?: UserDataNodeDefinition[]; meshes?: UserDataMeshDefinition[] };
+      nodeMap?: Map<Object3D, number>;
     };
+    // writeMesh is cached by geometry/material, whereas nodeMap includes every
+    // exported object, including meshes sharing the exact same geometry.
+    for (const [object, index] of nodeMap ?? []) {
+      const mesh = object as Mesh;
+      for (const material of Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []) {
+        for (const node of this.userDataNodes.get(material) ?? []) {
+          const nodeDef = json.nodes?.[index];
+          validateUserDataTransport(node, object, nodeDef, nodeDef?.mesh === undefined ? undefined : json.meshes?.[nodeDef.mesh]);
+        }
+      }
+    }
     for (const { table, index } of this.resourceReferences) {
       if (!json[table]?.[index]) throw new Error(`Invalid resource reference: ${table}[${index}] was not exported`);
     }
@@ -155,6 +204,10 @@ export class THREEMaterialsTSLExporterPlugin {
         throw new Error('Node serializer returned no op');
       }
 
+      if (exportData.op === 'UserDataNode' && userDataProperty(node as object) !== undefined) {
+        if (!this.userDataNodes.has(material)) this.userDataNodes.set(material, new Set());
+        this.userDataNodes.get(material)!.add(node as object);
+      }
       validateReferenceMaterial(node as object, material);
       validateGeometryMaterial(node as object, material);
       if (!this.materialNodes.has(material)) this.materialNodes.set(material, new Set());

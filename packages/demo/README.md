@@ -107,3 +107,12 @@ bindings and backend upload calls with mocked GPU endpoints. It also checks
 strict export rejection and complete ordinary-material fallback. See the
 [exact subset, source audit and deferrals](../../docs/buffer-node-support.md).
 These CPU checks do not establish GPU compilation, upload success or pixels.
+
+The [UserDataNode suite](test/userData.test.js) checks current-object scalar float
+reads through two JSON glTF/GLB round trips, actual mesh extras, shared materials
+with distinct values, cached geometry, material clones, multiple scenes and native
+NodeFrame updates after mutations. It compares GLSL/WGSL vertex/fragment flow and
+checks complete ordinary-material fallback for invalid graphs, extras and owners.
+See the [exact subset, source audit and deferrals](../../docs/user-data-node-support.md).
+Browser/GPU rendering was not performed; these CPU checks do not prove compilation
+or rendered pixels.

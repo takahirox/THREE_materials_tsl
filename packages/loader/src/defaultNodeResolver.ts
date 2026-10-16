@@ -1,3 +1,4 @@
+import { resolveUserDataNode } from './userDataNodes.js';
 import { resolveBufferNode } from './bufferNodes.js';
 import { resolveUniformArrayNode, isUniformArrayNodeOp } from './uniformArrayNodes.js';
 import { resolveGeometryNode, isGeometryNodeOp } from './geometryNodes.js';
@@ -44,6 +45,7 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
     if (isSharedUniformGroupOp(op)) {
       return _args === undefined && (!links || Object.keys(links).length === 0) ? resolveSharedUniformGroup(op) : null;
     }
+    if (op === 'UserDataNode') return resolveUserDataNode(_args, links);
     if (op === 'BufferNode') return resolveBufferNode(_args, links);
     if (isUniformArrayNodeOp(op)) return resolveUniformArrayNode(op, _args, links);
     if (isGeometryNodeOp(op)) return resolveGeometryNode(op, _args, links);

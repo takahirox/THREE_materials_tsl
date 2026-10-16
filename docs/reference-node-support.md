@@ -4,7 +4,9 @@
 exporter/loader defaults for ordinary `MaterialNode`, `ModelNode` and
 `MaterialReferenceNode` instances. Ordinary `Object3DNode` instances remain
 explicitly rejected. This uses the existing Draft v2.0 encoding; the specification
-and dependency ranges are unchanged.
+and dependency ranges are unchanged. The later [UserDataNode audit](user-data-node-support.md)
+defines a separate bounded current-object scalar-float subset; arbitrary reference
+and user-data bindings remain deferred.
 
 ## Audit baseline
 
