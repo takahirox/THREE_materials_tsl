@@ -1,3 +1,4 @@
+import { serializeUserDataNode } from './userDataNodes.js';
 import { serializeBufferNode } from './bufferNodes.js';
 import { serializeUniformArrayNode, isUniformArrayNodeOp } from './uniformArrayNodes.js';
 import { serializeGeometryNode, isGeometryNodeOp } from './geometryNodes.js';
@@ -92,6 +93,9 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
     } else if (override) {
       return override;
     }
+
+    const userDataNode = serializeUserDataNode(node);
+    if (userDataNode) return userDataNode;
 
     // Shared exports above retain their Three.js-owned update behavior. Ordinary
     // instances with app callbacks cannot be represented by data-only glTF.

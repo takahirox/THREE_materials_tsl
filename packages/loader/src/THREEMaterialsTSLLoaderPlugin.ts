@@ -1,3 +1,5 @@
+import { validateUserDataObjects } from './userDataNodes.js';
+import type { Object3D } from 'three';
 import { finishArrayElement } from './bufferNodes.js';
 import { finishUniformArrayNode } from './uniformArrayNodes.js';
 import { finishUniformNode } from './uniformGroups.js';
@@ -52,13 +54,18 @@ export class THREEMaterialsTSLLoaderPlugin {
     const originals: Material[] = await this.parser.getDependencies('material');
     const replacements = new Map<Material, NodeMaterial>();
     const groups = new Map<number, Set<Material>>();
+    const objects = new Map<number, Set<Object3D>>();
     originals.forEach((material, index) => groups.set(index, new Set([material])));
     for (const scene of result.scenes) {
       scene.traverse((object) => {
         const material = (object as unknown as { material?: Material | Material[] }).material;
         for (const item of Array.isArray(material) ? material : material ? [material] : []) {
           const index = this.parser.associations.get(item)?.materials;
-          if (index !== undefined) groups.get(index)?.add(item);
+          if (index !== undefined) {
+            groups.get(index)?.add(item);
+            if (!objects.has(index)) objects.set(index, new Set());
+            objects.get(index)!.add(object);
+          }
         }
       });
     }
@@ -80,7 +87,7 @@ export class THREEMaterialsTSLLoaderPlugin {
           this.copyOrdinaryMaterial(source, target);
           candidates.set(source, target);
         }
-        const slots = await this.resolveGraph(extension, candidates.values());
+        const slots = await this.resolveGraph(extension, candidates.values(), index, objects.get(index) ?? new Set());
         for (const target of candidates.values()) {
           for (const [slot, node] of Object.entries(slots)) {
             if (!safeKey(slot) || !slot.endsWith('Node') || !(slot in target)) {
@@ -164,7 +171,7 @@ export class THREEMaterialsTSLLoaderPlugin {
     throw new Error('Arguments must be JSON literals');
   }
 
-  private async resolveGraph(extension: ExtensionDefinition, materials: Iterable<NodeMaterial>) {
+  private async resolveGraph(extension: ExtensionDefinition, materials: Iterable<NodeMaterial>, index: number, objects: ReadonlySet<Object3D>) {
     const targets = [...materials];
     const resolved = new Map<string, unknown>();
     const resolving = new Set<string>();
@@ -198,6 +205,7 @@ export class THREEMaterialsTSLLoaderPlugin {
       finishArrayElement(node);
       finishUniformNode(node);
       for (const material of targets) validateReferenceMaterial(node, material);
+      await validateUserDataObjects(node, index, objects, this.parser);
       resolving.delete(id);
       resolved.set(id, node);
       return node;

@@ -187,6 +187,25 @@ Framebuffer-depth textures, foreign-camera and logarithmic/reversed-depth
 conversion need explicit resource/encoding bindings. See the
 [exact four-class audit, stage/backend limitations and adapter paths](../../docs/geometry-node-support.md).
 
+### Bounded current-object user data
+
+The paired defaults support ordinary `UserDataNode` / `userData('tint', 'float')`
+with null userData/object bindings, native default groups/scheduling/base state,
+and a safe single-level identifier. Each rendering Mesh using the material must
+have its own enumerable finite numeric `userData.tint` (excluding negative zero).
+The graph carries only the selector and float type; native glTF node extras carry
+the per-object value. Imported real UserDataNode instances keep native live reads
+of the currently rendered Mesh, including different values on shared materials.
+
+Support is bounded to ordinary single-primitive triangle Meshes with scalar
+materials and proven node-extras ownership. Material arrays, multi-primitive
+Groups, pivots, instancing/skinning/morphs, attachments, unproven scene clones,
+external/nested bindings, accessors/callbacks and other referenced value types are
+deferred. Export rejects unsupported contexts, including cached mesh uses;
+malformed imports retain the complete ordinary material and other supported
+extensions with no partially installed graph. See the [exact property/state/layout
+contract, source audit, tests and paired adapter ownership paths](../../docs/user-data-node-support.md).
+
 ### Dynamic material and model references
 
 The paired defaults support ordinary `MaterialNode`, `ModelNode` and
