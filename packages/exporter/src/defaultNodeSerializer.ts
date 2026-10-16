@@ -8,9 +8,8 @@ import { serializeShadingNode } from './shadingNodes.js';
 import { serializeDataNode } from './dataNodes.js';
 import { serializeTextureNode, isTextureNodeOp } from './textureNodes.js';
 import { validateNodeLinks } from './nodeLinks.js';
-import { objectGroup } from 'three/tsl';
+import { validateUniformGroup, validateUniformNode } from './uniformGroups.js';
 import type { Node } from 'three/webgpu';
-import { objectGroup as sourceObjectGroup } from 'three/src/nodes/core/UniformGroupNode.js';
 
 type DefaultNodeSerializerOptions = {
   overrides?: Record<string, NodeExport | ((node: unknown) => NodeExport | null)>;
@@ -72,6 +71,7 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
       } else if (override) {
         return override;
       }
+      if (['objectGroup', 'renderGroup', 'frameGroup'].includes(sharedName)) validateUniformGroup(node);
       return { op: sharedName };
     }
 
@@ -125,13 +125,15 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
       validateNodeLinks(node as Node, inputs);
     }
 
-    if (nodeType === 'UniformNode' && ![objectGroup, sourceObjectGroup].includes((node as { groupNode?: unknown }).groupNode as typeof objectGroup)) {
-      throw new Error('Unsupported UniformNode group; supply explicit adapters');
-    }
+    const uniformGroup = nodeType === 'UniformNode' ? validateUniformNode(node as Node) : undefined;
 
     if (nodeType === 'ConstNode' || nodeType === 'UniformNode') {
+      // Native serialization discovers the group child. Preseed its UUID so
+      // graph traversal, identity and cycles remain owned by the graph writer.
+      const children = [...(node as Node).getSerializeChildren()];
+      const nodes = Object.fromEntries(children.map(({ childNode }) => [childNode.uuid, { uuid: childNode.uuid }]));
       const serializeData: Record<string, unknown> = {
-        meta: { nodes: {}, textures: {}, images: {} }
+        meta: { nodes, textures: {}, images: {} }
       };
       (node as { serialize?: (data: Record<string, unknown>) => void }).serialize?.(serializeData);
       if (!['float', 'bool', 'color', 'vec2', 'vec3', 'vec4', 'mat2', 'mat3', 'mat4'].includes(serializeData.valueType as string)) {
@@ -143,7 +145,11 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
         nodeType: serializeData.nodeType,
         precision: serializeData.precision
       });
-      return { op: nodeType, args };
+      const links: Record<string, unknown> = {};
+      if (uniformGroup && uniformGroup !== 'objectGroup') {
+        for (const { property, index, childNode } of children) assignLink(links, property, index, childNode);
+      }
+      return { op: nodeType, args, ...(Object.keys(links).length ? { links } : {}) };
     }
 
     if (nodeType === 'AttributeNode') {

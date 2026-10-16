@@ -5,6 +5,7 @@ import * as TSL from 'three/tsl';
 import { resolveShadingNode, isShadingNodeOp } from './shadingNodes.js';
 import { resolveDataNode, isDataNodeOp } from './dataNodes.js';
 import { resolveTextureNode, isTextureNodeOp } from './textureNodes.js';
+import { isSharedUniformGroupOp, resolveSharedUniformGroup, prepareUniformNode } from './uniformGroups.js';
 // Keep reconstructed nodes on the same TSL stack as three/tsl. Mixing source
 // and bundled node modules breaks derivative and function-backed shader setup.
 import { ConstNode, AttributeNode, UniformNode, MathNode, OperatorNode } from 'three/webgpu';
@@ -39,6 +40,9 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
   const overrides = options.overrides ?? {};
   return (op: string, _args?: JsonValue, links?: Record<string, unknown>) => {
     if (Object.prototype.hasOwnProperty.call(overrides, op)) return overrides[op];
+    if (isSharedUniformGroupOp(op)) {
+      return _args === undefined && (!links || Object.keys(links).length === 0) ? resolveSharedUniformGroup(op) : null;
+    }
     if (isUniformArrayNodeOp(op)) return resolveUniformArrayNode(op, _args, links);
     if (isGeometryNodeOp(op)) return resolveGeometryNode(op, _args, links);
     if (isReferenceNodeOp(op)) return resolveReferenceNode(op, _args, links);
@@ -55,7 +59,8 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
     if (Object.prototype.hasOwnProperty.call(basicFields, op)) {
       if (!_args || typeof _args !== 'object' || Array.isArray(_args) ||
           !Object.keys(_args).every((key) => basicFields[op].includes(key))) return null;
-      if (['ConstNode', 'UniformNode', 'AttributeNode'].includes(op) && links && Object.keys(links).length) return null;
+      if (['ConstNode', 'AttributeNode'].includes(op) && links && Object.keys(links).length) return null;
+      if (op === 'UniformNode' && links && Object.keys(links).length && !validInputs(links, ['groupNode'])) return null;
     }
     if (op === 'ConstNode' || op === 'UniformNode') {
       const args = _args as Record<string, unknown> | undefined;
@@ -72,6 +77,7 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
       // Three.js owns the value and precision serialization semantics.
       // InputNode infers its type only from null, not undefined.
       node.deserialize({ ...args, nodeType: args.nodeType ?? null } as never);
+      if (node instanceof UniformNode) prepareUniformNode(node);
       return node;
     }
     if (op === 'AttributeNode') {

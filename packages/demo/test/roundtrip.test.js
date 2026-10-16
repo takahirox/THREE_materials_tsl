@@ -765,7 +765,7 @@ it('rejects incomplete data nodes, unsupported resources/code, callbacks and sub
     new TextureNode(new Texture()), new BufferNode(new Float32Array(4), 'float', 4),
     new CodeNode('arbitrary code'), new ExpressionNode('arbitrary code'),
     TSL.Fn(() => TSL.float(1))(), new UniformNode(1).onUpdate(() => 2),
-    Object.assign(new UniformNode(1), { groupNode: TSL.frameGroup }),
+    Object.assign(new UniformNode(1), { groupNode: { isNode: true, isUniformGroup: true } }),
     new CustomJoin([new ConstNode(1)]), extra, cyclic
   ]) {
     const source = new MeshStandardNodeMaterial(); source.colorNode = node;

@@ -61,7 +61,7 @@ class/family and shared-object inventories, tested boundaries, deferred cases,
 reasons and adapter paths. Advanced texture variants, buffer node classes,
 closures, code-backed nodes and renderer resources are outside the default
 allowlist. Some can use paired adapters; others need additional resource/control-flow design. Ordinary
-nodes with app-installed callbacks, uniforms with non-default groups, subclasses
+nodes with app-installed callbacks, uniforms with unsupported groups, subclasses
 inheriting built-in operation IDs, and unrepresentable inputs fail explicitly.
 Custom code stays consumer-supplied; the file cannot carry executable code.
 The existing peer dependency range `three >=0.182.0` is retained;
@@ -92,6 +92,21 @@ omitted settings retain r186's distinct behavior. Consumers using explicit final
 output conversion must arrange one final transform (for a manually transformed
 RenderPipeline, set `outputColorTransform = false`). The plugins add no output
 transform. Execution remains entirely Three.js-owned.
+
+### Uniform groups
+
+Ordinary `UniformNode` instances may select the exact `three/tsl` `objectGroup`,
+`renderGroup` or `frameGroup`. An unchanged default object group still emits no
+link. Render/frame selections emit a `groupNode` graph reference to the shared
+operation, preserving exact singleton identity and native buffer scheduling.
+Group versions, upload buffers and renderer caches are never serialized.
+
+Independently constructed `UniformGroupNode` instances, lookalikes, altered
+singleton configuration, subclasses, callbacks and unexpected uniform state fail
+export. Independent groups need consumer-owned naming, ordering, identity and
+lifecycle bindings through paired overrides. Uniform labels/global/parents must
+remain native defaults. UniformArrayNode keeps its existing object-group-only
+subset. See the [source audit, exact contract, deferrals and adapter path](../../docs/uniform-group-support.md).
 
 ### Bounded uniform arrays
 
