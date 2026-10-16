@@ -134,6 +134,22 @@ output conversion must arrange one final transform (for a manually transformed
 RenderPipeline, set `outputColorTransform = false`). The plugins add no output
 transform. Execution remains entirely Three.js-owned.
 
+### Uniform groups
+
+Ordinary `UniformNode` accepts an optional `groupNode: { "$ref": "id" }` link
+to the exact `three/tsl` `objectGroup`, `renderGroup` or `frameGroup` operation.
+Omitted links preserve the native object-group default; explicit objectGroup
+imports normalize to omission on re-export. Group ops accept no args or nonempty
+links and return the actual shared objects with native scheduling and live versions.
+
+Malformed links, non-group targets, independent `UniformGroupNode` ops, unknown
+fields/lifecycle args and invalid references reject the whole material extension,
+including invalid unreachable definitions, retaining the complete ordinary glTF
+material and its supported extensions. Independent groups require consumer-owned
+name/order/identity/lifecycle bindings through paired overrides. UniformArrayNode
+retains its separate object-group-only contract. See the
+[source audit, exact subset, deferrals and adapter path](../../docs/uniform-group-support.md).
+
 ### Bounded uniform arrays
 
 The paired defaults support ordinary `UniformArrayNode` and

@@ -91,3 +91,11 @@ reads/declarations, native padding and per-render updates, shared parent/index
 links, mutable snapshots and complete ordinary-material fallback. See the
 [exact subset, r186 audit and check results](../../docs/uniform-array-support.md).
 GPU compilation and rendered pixels are not established by these Node tests.
+
+The [uniform-group suite](test/uniformGroups.test.js) covers exact object/render/
+frame groups on ordinary UniformNode through two JSON glTF and GLB round trips,
+shared references, ordinary material coexistence, strict export rejection and
+complete import fallback. It checks native GLSL/WGSL flow, group order and binding
+reuse/cloning, live packed values, and NodeFrame/NodeManager update behavior.
+See the [group audit and independent-group deferrals](../../docs/uniform-group-support.md).
+These CPU checks do not establish GPU compilation or rendered pixels.

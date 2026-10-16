@@ -1,4 +1,5 @@
 import { finishUniformArrayNode } from './uniformArrayNodes.js';
+import { finishUniformNode } from './uniformGroups.js';
 import { finishGeometryNode } from './geometryNodes.js';
 import { validateReferenceMaterial } from './referenceNodes.js';
 import * as TSL from 'three/tsl';
@@ -138,6 +139,7 @@ export class THREEMaterialsTSLLoaderPlugin {
     if (!record(raw.entrypoints) || !Object.keys(raw.entrypoints).length || !record(raw.nodes)) throw new Error('Missing entrypoints or nodes');
     for (const [id, node] of Object.entries(raw.nodes)) {
       if (!safeKey(id) || !record(node) || typeof node.op !== 'string' || !node.op.trim()) throw new Error(`Invalid node "${id}"`);
+      if (!Object.keys(node).every((key) => ['op', 'args', 'links'].includes(key))) throw new Error(`Unknown field on node "${id}"`);
       if (node.args !== undefined) this.validateJson(node.args);
       if (node.links !== undefined && !record(node.links)) throw new Error('Invalid links');
     }
@@ -192,6 +194,7 @@ export class THREEMaterialsTSLLoaderPlugin {
       finishShadingNode(node);
       finishGeometryNode(node);
       finishUniformArrayNode(node);
+      finishUniformNode(node);
       for (const material of targets) validateReferenceMaterial(node, material);
       resolving.delete(id);
       resolved.set(id, node);
