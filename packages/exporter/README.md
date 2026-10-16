@@ -58,7 +58,7 @@ and Euler order survive repeated round trips.
 
 See the [coverage matrix](../../docs/tsl-node-coverage.md) for the complete audited
 class/family and shared-object inventories, tested boundaries, deferred cases,
-reasons and adapter paths. Advanced texture variants, buffer node classes,
+reasons and adapter paths. Advanced texture variants, buffer layouts beyond the bounded subset,
 closures, code-backed nodes and renderer resources are outside the default
 allowlist. Some can use paired adapters; others need additional resource/control-flow design. Ordinary
 nodes with app-installed callbacks, uniforms with unsupported groups, subclasses
@@ -107,6 +107,26 @@ export. Independent groups need consumer-owned naming, ordering, identity and
 lifecycle bindings through paired overrides. Uniform labels/global/parents must
 remain native defaults. UniformArrayNode keeps its existing object-group-only
 subset. See the [source audit, exact contract, deferrals and adapter path](../../docs/uniform-group-support.md).
+
+### Bounded BufferNode arrays
+
+The paired defaults also support exact ordinary `BufferNode` with `bufferType`
+`vec4` (1–4096 elements) or `mat4` (1–1024 column-major matrices), explicit positive
+count, and a matching flat **Float32Array** (4 or 16 components per element).
+Only finite values excluding negative zero, exact default objectGroup/lifecycle/
+base/input state and empty update ranges are supported. Ordinary arrays, other
+typed arrays, custom groups/labels/callbacks, storage/compute/attribute buffers and
+other layouts require paired adapters. The bound is 64 KiB per buffer; actual
+device limits remain the application's responsibility.
+
+JSON stores a value snapshot, type and count; import creates a fresh native
+BufferNode/Float32Array. Existing ArrayElementNode parent/index links and graph
+sharing remain intact. Native Three.js owns declarations, bindings and full
+uploads, including in-place updates or same-length value replacement. Scalar
+indices must use valid native stages and remain within bounds; direct/wrapped
+constant indices are checked. Unsupported exports fail; malformed graphs,
+including invalid unreachable nodes, retain the entire ordinary material.
+See the [exact data/state contract, r186 audit, tests and deferrals](../../docs/buffer-node-support.md).
 
 ### Bounded uniform arrays
 

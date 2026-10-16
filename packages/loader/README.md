@@ -101,7 +101,7 @@ after construction. Factories/constructors receive array arguments positionally
 and other arguments as one value. Custom code is consumer-supplied, never read
 from the glTF file.
 
-Advanced texture variants, buffer node classes, closures, code-backed nodes and
+Advanced texture variants, buffer layouts beyond the bounded subset, closures, code-backed nodes and
 renderer resources are outside the default allowlist. Some can use paired
 exporter/resolver adapters; others need resource or control-flow design work (see the matrix). Custom code
 must remain consumer-supplied; the file cannot carry executable code.
@@ -149,6 +149,26 @@ material and its supported extensions. Independent groups require consumer-owned
 name/order/identity/lifecycle bindings through paired overrides. UniformArrayNode
 retains its separate object-group-only contract. See the
 [source audit, exact subset, deferrals and adapter path](../../docs/uniform-group-support.md).
+
+### Bounded BufferNode arrays
+
+The paired defaults also support exact ordinary `BufferNode` with `bufferType`
+`vec4` (1–4096 elements) or `mat4` (1–1024 column-major matrices), explicit positive
+count, and a matching flat **Float32Array** (4 or 16 components per element).
+Only finite values excluding negative zero, exact default objectGroup/lifecycle/
+base/input state and empty update ranges are supported. Ordinary arrays, other
+typed arrays, custom groups/labels/callbacks, storage/compute/attribute buffers and
+other layouts require paired adapters. The bound is 64 KiB per buffer; actual
+device limits remain the application's responsibility.
+
+JSON stores a value snapshot, type and count; import creates a fresh native
+BufferNode/Float32Array. Existing ArrayElementNode parent/index links and graph
+sharing remain intact. Native Three.js owns declarations, bindings and full
+uploads, including in-place updates or same-length value replacement. Scalar
+indices must use valid native stages and remain within bounds; direct/wrapped
+constant indices are checked. Unsupported exports fail; malformed graphs,
+including invalid unreachable nodes, retain the entire ordinary material.
+See the [exact data/state contract, r186 audit, tests and deferrals](../../docs/buffer-node-support.md).
 
 ### Bounded uniform arrays
 

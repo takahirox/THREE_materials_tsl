@@ -1,3 +1,4 @@
+import { validateArrayElement } from './bufferNodes.js';
 import { InterpolationSamplingType, InterpolationSamplingMode } from 'three';
 import type { Node } from 'three/webgpu';
 import type { JsonValue, NodeExport } from './types.js';
@@ -32,6 +33,7 @@ export function serializeDataNode(value: object): NodeExport | null {
   // would break with minification or Three.js's separate source/build modules.
   if (!Object.prototype.hasOwnProperty.call(node.constructor, 'type')) throw new Error(`Unsupported subclass of ${node.type}; supply explicit adapters`);
 
+  if (node.type === 'ArrayElementNode') validateArrayElement(node as never);
   const inputs = [...adapter.inputs, ...(adapter.optional ?? [])];
   const children = [...node.getSerializeChildren()];
   // Preseed Three.js's cache: serialize this node's fields without recursively

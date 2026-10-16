@@ -109,15 +109,15 @@ function validateIndexGraph(index: Node, builder: NodeBuilder, seen = new Set<No
     validateIndexInput((index as Node & { value: unknown }).value, index.getNodeType(builder));
   }
 }
-function validateElement(node: Element) {
-  check(node.node?.type === 'UniformArrayNode' && node.indexNode?.isNode === true);
+export function validateArrayIndex(indexNode: Node, count: number) {
+  check(indexNode?.isNode === true);
   const TypeBuilder = NodeBuilder as unknown as new () => NodeBuilder;
   const builder = new TypeBuilder();
-  validateIndexGraph(node.indexNode, builder);
-  check(['float', 'int', 'uint'].includes(node.indexNode.getNodeType(builder)));
+  validateIndexGraph(indexNode, builder);
+  check(['float', 'int', 'uint'].includes(indexNode.getNodeType(builder)));
   // Native indexing converts scalar floats to uint. Static indices must already
   // be integral and in range; dynamic scalar expressions retain native semantics.
-  let index = node.indexNode as Node & Record<string, unknown>;
+  let index = indexNode as Node & Record<string, unknown>;
   const seen = new Set<Node>();
   while (['VarNode', 'ConvertNode', 'SubBuild'].includes(index.type)) {
     check(!seen.has(index)); seen.add(index);
@@ -125,8 +125,12 @@ function validateElement(node: Element) {
     check(index?.isNode);
   }
   if (index.type === 'ConstNode') {
-    check(typeof index.value === 'number' && Number.isInteger(index.value) && !Object.is(index.value, -0) && index.value >= 0 && index.value < node.node.array.length);
+    check(typeof index.value === 'number' && Number.isInteger(index.value) && !Object.is(index.value, -0) && index.value >= 0 && index.value < count);
   }
+}
+function validateElement(node: Element) {
+  check(node.node?.type === 'UniformArrayNode');
+  validateArrayIndex(node.indexNode, node.node.array.length);
 }
 
 const templates = [new UniformArrayNode([0]), new SourceUniformArrayNode([0])];

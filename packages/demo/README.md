@@ -99,3 +99,11 @@ complete import fallback. It checks native GLSL/WGSL flow, group order and bindi
 reuse/cloning, live packed values, and NodeFrame/NodeManager update behavior.
 See the [group audit and independent-group deferrals](../../docs/uniform-group-support.md).
 These CPU checks do not establish GPU compilation or rendered pixels.
+
+The [BufferNode suite](test/buffers.test.js) covers bounded Float32Array `vec4`
+and column-major `mat4` snapshots through two JSON glTF/GLB round trips, native
+GLSL/WGSL expressions and declarations, element/index sharing, live native buffer
+bindings and backend upload calls with mocked GPU endpoints. It also checks
+strict export rejection and complete ordinary-material fallback. See the
+[exact subset, source audit and deferrals](../../docs/buffer-node-support.md).
+These CPU checks do not establish GPU compilation, upload success or pixels.

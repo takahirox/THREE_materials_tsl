@@ -1,3 +1,4 @@
+import { prepareArrayElement } from './bufferNodes.js';
 import { InterpolationSamplingType, InterpolationSamplingMode } from 'three';
 import {
   ArrayNode, ArrayElementNode, ConditionalNode, ConvertNode, FlipNode, JoinNode,
@@ -102,5 +103,6 @@ export function resolveDataNode(op: string, raw: JsonValue | undefined, rawLinks
   if (args.name !== undefined) node.name = args.name as string;
   if (args.parents !== undefined) node.parents = args.parents as boolean;
   if (args.global !== undefined) node.global = args.global as boolean;
+  if (op === 'ArrayElementNode') prepareArrayElement(node);
   return node;
 }

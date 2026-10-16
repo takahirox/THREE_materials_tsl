@@ -1,3 +1,4 @@
+import { serializeBufferNode } from './bufferNodes.js';
 import { serializeUniformArrayNode, isUniformArrayNodeOp } from './uniformArrayNodes.js';
 import { serializeGeometryNode, isGeometryNodeOp } from './geometryNodes.js';
 import type { JsonValue } from './types.js';
@@ -102,6 +103,8 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
       }
     }
 
+    const bufferNode = serializeBufferNode(node);
+    if (bufferNode) return bufferNode;
     const uniformArrayNode = serializeUniformArrayNode(node);
     if (uniformArrayNode) return uniformArrayNode;
     const geometryNode = serializeGeometryNode(node);
