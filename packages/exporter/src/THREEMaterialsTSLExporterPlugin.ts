@@ -1,3 +1,4 @@
+import { validateBufferAttributeMesh, validateBufferAttributeTransport, validateBufferAttributeAliases } from './bufferAttributeNodes.js';
 import { userDataProperty, validateUserDataMesh, validateUserDataTransport, type UserDataNodeDefinition, type UserDataMeshDefinition } from './userDataNodes.js';
 import { validateGeometryMaterial } from './geometryNodes.js';
 import { validateReferenceMaterial, validateReferenceGeometry } from './referenceNodes.js';
@@ -36,7 +37,9 @@ export class THREEMaterialsTSLExporterPlugin {
   private readonly writer: GLTFWriter;
   private readonly options: THREEMaterialsTSLExporterPluginOptions;
   private readonly resourceReferences: { table: 'textures' | 'accessors'; index: number }[] = [];
+  private readonly accessorIndices = new Map<BufferAttribute, number>();
   private readonly materialNodes = new WeakMap<Material, Set<object>>();
+  private readonly bufferAttributeNodes = new WeakMap<Material, Set<object>>();
   private readonly userDataNodes = new WeakMap<Material, Set<object>>();
 
   constructor(writer: GLTFWriter, options: THREEMaterialsTSLExporterPluginOptions) {
@@ -47,6 +50,8 @@ export class THREEMaterialsTSLExporterPlugin {
   beforeParse(input: Object3D | Object3D[]) {
     // Object extras are serialized before writeMaterialAsync. Preflight native
     // UserDataNode inputs before JSON.stringify can invoke any extras accessors.
+    // Buffer attributes need preflight too: native export skips positionless
+    // geometry, and native child discovery can read unknown attached getters.
     const checked = new WeakMap<Material, Set<object>>();
     const visit = (object: Object3D) => {
       const mesh = object as Mesh;
@@ -60,6 +65,11 @@ export class THREEMaterialsTSLExporterPlugin {
             if (!this.isNodeLike(value) || seen.has(value)) return;
             seen.add(value);
             const node = value as import('three/webgpu').Node;
+            if (node.type === 'BufferAttributeNode') {
+              const data = this.options.nodeSerializer(node);
+              if (data?.op === 'BufferAttributeNode') nodes.add(node);
+              return;
+            }
             if (node.type === 'UserDataNode') {
               const data = this.options.nodeSerializer(node);
               if (data?.op === 'UserDataNode' && userDataProperty(node) !== undefined) nodes.add(node);
@@ -70,7 +80,10 @@ export class THREEMaterialsTSLExporterPlugin {
           for (const node of Object.values(this.collectEntrypoints(material) ?? {})) walk(node);
           checked.set(material, nodes);
         }
-        for (const node of checked.get(material)!) validateUserDataMesh(node, object);
+        for (const node of checked.get(material)!) {
+          validateUserDataMesh(node, object);
+          validateBufferAttributeMesh(node, object);
+        }
       }
       for (const child of object.children) {
         if (child.visible || (this.writer as GLTFWriter & { options: { onlyVisible?: boolean } }).options.onlyVisible === false) visit(child);
@@ -86,6 +99,7 @@ export class THREEMaterialsTSLExporterPlugin {
       for (const node of this.materialNodes.get(material) ?? []) {
         validateReferenceGeometry(node, material, mesh.geometry.hasAttribute('tangent'));
       }
+      for (const node of this.bufferAttributeNodes.get(material) ?? []) validateBufferAttributeMesh(node, mesh);
     }
   }
 
@@ -101,6 +115,10 @@ export class THREEMaterialsTSLExporterPlugin {
     for (const [object, index] of nodeMap ?? []) {
       const mesh = object as Mesh;
       for (const material of Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []) {
+        for (const node of this.bufferAttributeNodes.get(material) ?? []) {
+          const nodeDef = json.nodes?.[index];
+          validateBufferAttributeTransport(node, object, nodeDef?.mesh === undefined ? undefined : json.meshes?.[nodeDef.mesh]);
+        }
         for (const node of this.userDataNodes.get(material) ?? []) {
           const nodeDef = json.nodes?.[index];
           validateUserDataTransport(node, object, nodeDef, nodeDef?.mesh === undefined ? undefined : json.meshes?.[nodeDef.mesh]);
@@ -204,6 +222,11 @@ export class THREEMaterialsTSLExporterPlugin {
         throw new Error('Node serializer returned no op');
       }
 
+      if (exportData.op === 'BufferAttributeNode') {
+        validateBufferAttributeAliases(node as object, this.accessorIndices.keys());
+        if (!this.bufferAttributeNodes.has(material)) this.bufferAttributeNodes.set(material, new Set());
+        this.bufferAttributeNodes.get(material)!.add(node as object);
+      }
       if (exportData.op === 'UserDataNode' && userDataProperty(node as object) !== undefined) {
         if (!this.userDataNodes.has(material)) this.userDataNodes.set(material, new Set());
         this.userDataNodes.get(material)!.add(node as object);
@@ -318,8 +341,12 @@ export class THREEMaterialsTSLExporterPlugin {
         const accessorWriter = this.writer as GLTFWriter & {
           processAccessor?: (accessor: BufferAttribute) => number | null;
         };
-        const accessorIndex = accessorWriter.processAccessor?.(objectTarget.accessor);
+        if (typeof accessorWriter.processAccessor !== 'function') throw new Error('Could not export accessor link');
+        const cached = this.accessorIndices.get(objectTarget.accessor);
+        if (cached !== undefined) return { $refAccessor: cached };
+        const accessorIndex = accessorWriter.processAccessor(objectTarget.accessor);
         if (accessorIndex === undefined || accessorIndex === null) throw new Error('Could not export accessor link');
+        this.accessorIndices.set(objectTarget.accessor, accessorIndex);
         return { $refAccessor: accessorIndex };
       }
 

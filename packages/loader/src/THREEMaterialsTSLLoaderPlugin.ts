@@ -1,3 +1,4 @@
+import { validateBufferAttributeAccessor, finishBufferAttributeNode } from './bufferAttributeNodes.js';
 import { validateUserDataObjects } from './userDataNodes.js';
 import type { Object3D } from 'three';
 import { finishArrayElement } from './bufferNodes.js';
@@ -174,6 +175,7 @@ export class THREEMaterialsTSLLoaderPlugin {
   private async resolveGraph(extension: ExtensionDefinition, materials: Iterable<NodeMaterial>, index: number, objects: ReadonlySet<Object3D>) {
     const targets = [...materials];
     const resolved = new Map<string, unknown>();
+    const attributeSources = new Set<import('three').BufferAttribute>();
     const resolving = new Set<string>();
     const resolveNode = async (id: string): Promise<unknown> => {
       if (resolved.has(id)) return resolved.get(id);
@@ -190,6 +192,7 @@ export class THREEMaterialsTSLLoaderPlugin {
         node = factory.prototype ? new (factory as new (...args: unknown[]) => unknown)(...args) : factory(...args);
       }
       if (!isNode(node)) throw new Error(`Unknown or unusable op "${def.op}"`);
+      validateBufferAttributeAccessor(node, this.parser);
       if (def.links) {
         // Shared TSL singleton operations must never be mutated by file data.
         if (sharedNodes.has(node) && Object.keys(def.links).length) throw new Error('Shared TSL operations cannot have links');
@@ -198,6 +201,7 @@ export class THREEMaterialsTSLLoaderPlugin {
           (node as unknown as Record<string, unknown>)[slot] = await resolveLink(value);
         }
       }
+      await finishBufferAttributeNode(node, index, objects, this.parser, attributeSources);
       finishTextureNode(node, this.graphTextures);
       finishShadingNode(node);
       finishGeometryNode(node);
