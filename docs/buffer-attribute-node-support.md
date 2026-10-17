@@ -41,8 +41,14 @@ Only ordinary exact Mesh objects with one non-array material and one emitted
 triangle primitive are supported. Each using geometry must have a VEC3 position
 attribute with count equal to the node attribute count, no instanced geometry,
 morphs, indirect draw or restricted draw range. Indexed and non-indexed triangles
-work; indices must be integral and within vertex bounds, with a multiple of three
-elements. Wireframe, pivot changes, skinning, material arrays and multi-primitive
+work; indices must be unnormalized scalar Uint8/Uint16/Uint32 attributes within
+vertex bounds, with a positive multiple of three elements and matching array
+length/count. Import requires SCALAR UNSIGNED_BYTE/UNSIGNED_SHORT/UNSIGNED_INT
+accessor metadata matching the resolved native index type/count; native clones
+retain that validated index accessor. Float, signed and vector index layouts
+are rejected even when all their components are integral and in range, because
+they are invalid glTF indices and can change native index binding behavior.
+Wireframe, pivot changes, skinning, material arrays and multi-primitive
 ownership are excluded. Counts 1 and 4096 are exercised using an indexed triangle;
 a one-vertex triangle is necessarily degenerate. Representative three-vertex
 cases have distinct, non-collinear geometry vertices and native per-vertex
@@ -145,6 +151,9 @@ accessors, material entrypoints and graph/resource sharing. It exercises source
 and bundled classes, nonzero typed-view offsets, Float32 limits/negative zero,
 shared/cached meshes, material/geometry clones, multiple scenes, selected graphs,
 strict source rejection and whole-material import fallback.
+Index regressions cover unsigned scalar Uint8/Uint16/Uint32 round trips, rejected
+float/signed/vector layouts, mismatched hydrated metadata, unused definitions,
+and atomic fallback across shared materials and their primitive-specific clones.
 
 Native GLSL/WGSL setup/analyze/generate flows, declarations and vertex-to-fragment
 varyings are compared before/after import, including per-vertex displacement
@@ -161,14 +170,14 @@ Results below are from the final validation run; no tests were skipped.
 
 | Command from repository root | Result |
 | --- | --- |
-| `npm --prefix packages/loader ci` | Passed; 0 vulnerabilities reported. |
-| `npm --prefix packages/exporter ci` | Passed; 0 vulnerabilities reported. |
-| `npm --prefix packages/demo ci` | Passed; 10 existing dependency advisories (3 moderate, 5 high, 2 critical). No dependency or lockfile changes. |
-| `npm --prefix packages/demo test` | Passed: **11 files, 1732 tests**, including **221 BufferAttributeNode tests**; no skips. Existing texture-packing cases emit native merge/UV-channel warnings. |
+| `npm --prefix packages/loader ci --no-audit --no-fund` | Passed; dependency audit not rerun during the review fix. |
+| `npm --prefix packages/exporter ci --no-audit --no-fund` | Passed; dependency audit not rerun during the review fix. |
+| `npm --prefix packages/demo ci --no-audit --no-fund` | Passed; dependency audit not rerun during the review fix. No dependency or lockfile changes. |
+| `npm --prefix packages/demo test` | Passed: **11 files, 1774 tests**, including **263 BufferAttributeNode tests**; no skips. Existing texture-packing cases emit native merge/UV-channel warnings. |
 | `npm --prefix packages/loader run build` | Passed. |
 | `npm --prefix packages/exporter run build` | Passed. |
 | `npm --prefix packages/demo run typecheck` | Passed. |
-| `npm --prefix packages/demo run build` | Passed; Vite warned about a minified chunk exceeding 500 kB (1744.80 kB). |
+| `npm --prefix packages/demo run build` | Passed; Vite warned about a minified chunk exceeding 500 kB (1745.80 kB). |
 | `git diff --check` / `git diff --cached --check` | Passed. |
 | Browser WebGL/WebGPU visual checks | Not run (optional); devices and pixels remain unverified. |
 

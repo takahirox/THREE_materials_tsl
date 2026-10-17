@@ -235,6 +235,14 @@ const badMeshes = [
   ['missing position', (f) => { f.mesh.geometry.deleteAttribute('position'); }],
   ['index outside attribute', (f) => { f.mesh.geometry.index.array[1] = 3; }],
   ['nontriangle index', (f) => { f.mesh.geometry.setIndex([0, 1]); }],
+  ...[Float32Array, Float64Array, Int8Array, Int16Array, Int32Array].map((Type) =>
+    [Type.name + ' index', (f) => { f.mesh.geometry.setIndex(new BufferAttribute(new Type([0, 1, 2]), 1)); }]),
+  ...[2, 3, 4].map((width) => ['nonscalar index width ' + width, (f) => {
+    f.mesh.geometry.setIndex(new BufferAttribute(new Uint16Array(Array.from({ length: width * 3 }, (_, i) => i % 3)), width));
+  }]),
+  ['normalized index', (f) => { f.mesh.geometry.index.normalized = true; }],
+  ['index count mismatch', (f) => { f.mesh.geometry.index.count = 6; }],
+  ['empty index', (f) => { f.mesh.geometry.setIndex([]); }],
   ['draw range', (f) => { f.mesh.geometry.setDrawRange(0, 3); }],
   ['geometry alias', (f) => { f.mesh.geometry.setAttribute('color', f.data); }],
   ['geometry array alias', (f) => { f.mesh.geometry.setAttribute('color', new BufferAttribute(f.data.array, 3)); }],
@@ -265,6 +273,83 @@ async function expectFallback(json, prepare) {
   }
   return actual;
 }
+
+const indexLayouts = [[Uint8Array, 5121], [Uint16Array, 5123], [Uint32Array, 5125]];
+it.each(indexLayouts.flatMap(([Type, componentType]) => [false, true].map((binary) => [Type, componentType, binary])))
+('round-trips unsigned scalar %s indices (componentType=%s GLB=%s)', async (Type, componentType, binary) => {
+  const f = fixture();
+  f.mesh.geometry.setIndex(new BufferAttribute(new Type([0, 1, 2]), 1));
+  let scene = f.scene;
+  for (let round = 0; round < 2; round++) {
+    const json = await exportScene(scene);
+    const accessor = json.accessors[json.meshes[0].primitives[0].indices];
+    expect(accessor).toMatchObject({ componentType, type: 'SCALAR', count: 3 });
+    const errors = [], result = await load(binary ? await exportScene(scene, true) : json, errors);
+    expect(errors).toEqual([]);
+    for (const mesh of meshes(result.scene)) {
+      expect(mesh.material.isNodeMaterial).toBe(true);
+      expect(mesh.geometry.index.array).toBeInstanceOf(Type);
+      expect(Array.from(mesh.geometry.index.array)).toEqual([0, 1, 2]);
+      expect(mesh.geometry.index.itemSize).toBe(1);
+    }
+    scene = result.scene;
+  }
+});
+
+const invalidIndexLayouts = [
+  [Float32Array, 5126, 1], [Int8Array, 5120, 1], [Int16Array, 5122, 1],
+  ...[2, 3, 4].map((width) => [Uint16Array, 5123, width])
+];
+it.each(invalidIndexLayouts.flatMap((layout) => [true, false].map((cached) => [...layout, cached])))
+('retains whole ordinary materials for %s index accessors (componentType=%s width=%s cached=%s)', async (Type, componentType, width, cached) => {
+  const f = fixture(3, false, 3, cached);
+  if (!cached) {
+    f.scene.children[0].geometry.setAttribute('normal', new Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+    f.scene.children[1].geometry.setAttribute('color', new Float32BufferAttribute(Array(9).fill(1), 3));
+  }
+  const json = await exportScene(f.scene);
+  // Supply correctly sized bytes for the malformed layout so the native loader
+  // can finish and the plugin must perform whole-material fallback itself.
+  const values = new Type(Array.from({ length: width * 3 }, (_, i) => i % 3));
+  const buffer = json.buffers.push({ byteLength: values.byteLength,
+    uri: 'data:application/octet-stream;base64,' + Buffer.from(values.buffer).toString('base64') }) - 1;
+  const bufferView = json.bufferViews.push({ buffer, byteOffset: 0, byteLength: values.byteLength, target: 34963 }) - 1;
+  json.meshes.at(-1).primitives[0].indices = json.accessors.push({ bufferView, componentType, count: 3,
+    type: ['SCALAR', 'VEC2', 'VEC3', 'VEC4'][width - 1] }) - 1;
+  const [a, b] = await expectFallback(json);
+  expect(a.material === b.material).toBe(cached);
+  if (!cached) expect(b.material.vertexColors).toBe(true);
+});
+
+it.each(['float', 'signed', 'nonscalar', 'component metadata', 'count metadata', 'normalized', 'replaced index'])
+('retains whole ordinary materials when hydrated index layout disagrees: %s', async (mode) => {
+  const json = await exportScene(fixture().scene);
+  await expectFallback(json, () => ({ name: 'mutate-native-indices', afterRoot(result) {
+    const geometry = meshes(result.scene)[0].geometry;
+    const Type = mode === 'float' ? Float32Array : mode === 'signed' ? Int16Array : mode === 'component metadata' ? Uint32Array : Uint16Array;
+    const values = mode === 'nonscalar' || mode === 'count metadata' ? [0, 1, 2, 0, 1, 2] : [0, 1, 2];
+    if (mode === 'replaced index') {
+      geometry.setIndex(new BufferAttribute(new Float32Array(values), 1));
+      return;
+    }
+    const indices = geometry.index;
+    indices.array = new Type(values);
+    indices.itemSize = mode === 'nonscalar' ? 2 : 1;
+    indices.count = values.length / indices.itemSize;
+    indices.normalized = mode === 'normalized';
+  } }));
+});
+
+it('validates index accessor layouts on unused primitive definitions sharing a material', async () => {
+  const json = await exportScene(fixture().scene);
+  const unused = structuredClone(json.meshes[0]);
+  const accessor = structuredClone(json.accessors[unused.primitives[0].indices]);
+  accessor.componentType = 5122;
+  unused.primitives[0].indices = json.accessors.push(accessor) - 1;
+  json.meshes.push(unused);
+  await expectFallback(json);
+});
+
 const badGraphs = [
   ['missing args', (_, n) => { delete n.args; }],
   ['array args', (_, n) => { n.args = []; }],
@@ -313,6 +398,7 @@ const badGraphs = [
   ['nontriangle primitive', (j) => { j.meshes[0].primitives[0].mode = 1; }],
   ['multiple primitives', (j) => { j.meshes[0].primitives.push(structuredClone(j.meshes[0].primitives[0])); }],
   ['geometry metadata mismatch', (j) => { j.accessors[j.meshes[0].primitives[0].attributes.POSITION].count = 2; }],
+  ['normalized index metadata', (j) => { j.accessors[j.meshes[0].primitives[0].indices].normalized = true; }],
   ['nonfinite data', (j, n, e, a, v) => {
     const b = j.buffers[v.buffer], bytes = Buffer.from(b.uri.split(',')[1], 'base64');
     bytes.writeFloatLE(Infinity, (v.byteOffset ?? 0) + (a.byteOffset ?? 0));

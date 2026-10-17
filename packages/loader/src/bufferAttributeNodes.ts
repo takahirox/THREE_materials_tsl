@@ -10,6 +10,8 @@ function check(valid: unknown): asserts valid {
 const pending = new WeakMap<object, number>();
 const types = ['float', 'vec2', 'vec3', 'vec4'];
 const shapes = ['SCALAR', 'VEC2', 'VEC3', 'VEC4'];
+const indexComponents = [5121, 5123, 5125];
+const indexArrays = [Uint8Array, Uint16Array, Uint32Array];
 const attributeDefaults = new BufferAttribute(new Float32Array(1), 1);
 const uint = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 export function resolveBufferAttributeNode(raw: JsonValue | undefined, links: Record<string, unknown> = {}) {
@@ -84,7 +86,8 @@ export async function finishBufferAttributeNode(node: object, index: number, obj
   n.attribute = native.attribute; n.usage = native.usage; n.instanced = native.instanced;
   check(n.attribute === data);
 
-  let uses = 0;
+  let uses = 0, nonIndexed = false;
+  const indexAccessors = new Set<BufferAttribute>();
   for (const [meshIndex, mesh] of (parser.json.meshes ?? []).entries()) {
     if (!mesh.primitives.some((p: { material?: number }) => p.material === index)) continue;
     uses++;
@@ -96,6 +99,18 @@ export async function finishBufferAttributeNode(node: object, index: number, obj
     check(!primitive.targets && !primitive.extensions);
     const position = parser.json.accessors?.[primitive.attributes?.POSITION];
     check(position?.count === data.count && position.type === 'VEC3');
+    if (primitive.indices !== undefined) {
+      check(uint(primitive.indices));
+      const indexDef = parser.json.accessors?.[primitive.indices];
+      check(indexDef && indexDef.type === 'SCALAR' && indexComponents.includes(indexDef.componentType));
+      check(indexDef.normalized === undefined || indexDef.normalized === false);
+      check(uint(indexDef.count) && indexDef.count > 0 && indexDef.count % 3 === 0);
+      const indices = await parser.getDependency('accessor', primitive.indices);
+      check(indices && indices.itemSize === 1 && indices.normalized === false && indices.count === indexDef.count);
+      check(Object.getPrototypeOf(indices.array) === indexArrays[indexComponents.indexOf(indexDef.componentType)].prototype);
+      check(indices.array.length === indices.count && Array.from(indices.array as ArrayLike<number>).every((i) => i < data.count));
+      indexAccessors.add(indices);
+    } else nonIndexed = true;
     // Geometry aliases require a separate identity contract.
     check(!Object.values(primitive.attributes).includes(ref) && primitive.indices !== ref);
   }
@@ -113,7 +128,14 @@ export async function finishBufferAttributeNode(node: object, index: number, obj
     const indices = geometry.index;
     check(!indices || indices.array.buffer !== data.array.buffer);
     check((indices?.count ?? data.count) % 3 === 0);
-    if (indices) check(!indices.normalized && Array.from(indices.array).every((i) => Number.isInteger(i) && i >= 0 && i < data.count));
+    // Native geometry/material/scene clones retain the resolved index accessor.
+    // Associations for objects in earlier scenes may already have been pruned.
+    check(indices ? indexAccessors.has(indices) : nonIndexed);
+    if (indices) {
+      check(indices.itemSize === 1 && indices.normalized === false && uint(indices.count) && indices.count > 0 && indices.array.length === indices.count);
+      check(indexArrays.some((Type) => Object.getPrototypeOf(indices.array) === Type.prototype));
+      check(Array.from(indices.array).every((i) => i < data.count));
+    }
   }
   pending.delete(node);
 }

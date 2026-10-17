@@ -67,7 +67,12 @@ export function validateBufferAttributeMesh(value: object, object: object) {
   const index = geometry.index;
   check(!index || index.array.buffer !== (node.value as BufferAttribute).array.buffer);
   check((index?.count ?? count) % 3 === 0);
-  if (index) check(!index.normalized && Array.from(index.array).every((i) => Number.isInteger(i) && i >= 0 && i < count));
+  if (index) {
+    check(index.itemSize === 1 && index.normalized === false &&
+      [Uint8Array.prototype, Uint16Array.prototype, Uint32Array.prototype].includes(Object.getPrototypeOf(index.array)));
+    check(Number.isSafeInteger(index.count) && index.count > 0 && index.array.length === index.count);
+    check(Array.from(index.array).every((i) => i < count));
+  }
 }
 
 export function validateBufferAttributeTransport(value: object, object: object, meshDef: { primitives?: { mode?: number }[] } | undefined) {
