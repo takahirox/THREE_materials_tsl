@@ -108,6 +108,34 @@ lifecycle bindings through paired overrides. Uniform labels/global/parents must
 remain native defaults. UniformArrayNode keeps its existing object-group-only
 subset. See the [source audit, exact contract, deferrals and adapter path](../../docs/uniform-group-support.md).
 
+### Static per-vertex BufferAttributeNode values
+
+The paired defaults support exact ordinary `BufferAttributeNode` instances with
+independent, static `BufferAttribute`/`Float32BufferAttribute` values: Float32,
+itemSize 1–4, unnormalized finite components, 1–4096 elements, default usage and
+native base/input state. Inferred types and matching explicit
+`float`/`vec2`/`vec3`/`vec4` types are supported, including native post-build caches.
+The count must match every using mesh's position count. Only ordinary,
+non-instanced single-primitive triangle Meshes with full draw ranges are accepted;
+compatible shared materials, cached geometry and native material clones work.
+
+Data uses the existing glTF accessor link (`links.value.$refAccessor`), with only
+`bufferType` in args. Import creates a bundled native BufferAttributeNode and
+restores `value === attribute` to the resolved accessor before publishing any
+material. Three.js owns type inference, attribute binding and fragment varyings.
+Snapshots preserve binary Float32 values (including negative zero), graph sharing
+and ordinary material properties/extensions; external mutable resource identity,
+GPU allocation and upload history are not transported.
+
+Interleaving, nonzero node stride/offset, matrices, normalized/integer/non-Float32
+views, instancing, storage/compute buffers, dynamic usage/pending update ranges,
+custom names/callbacks/base state, subclasses, geometry aliases and material arrays
+require paired accessor/geometry/resource adapters. Unsupported exports fail;
+invalid accessor metadata/data, geometry bindings or any graph definition retain
+the complete ordinary material and clones. See the [exact subset, r186 audit,
+validation and deferred adapter paths](../../docs/buffer-attribute-node-support.md).
+Node-side shader/binding tests do not prove GPU uploads or pixel correctness.
+
 ### Bounded BufferNode arrays
 
 The paired defaults also support exact ordinary `BufferNode` with `bufferType`

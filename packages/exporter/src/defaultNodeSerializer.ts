@@ -1,3 +1,4 @@
+import { serializeBufferAttributeNode } from './bufferAttributeNodes.js';
 import { serializeUserDataNode } from './userDataNodes.js';
 import { serializeBufferNode } from './bufferNodes.js';
 import { serializeUniformArrayNode, isUniformArrayNodeOp } from './uniformArrayNodes.js';
@@ -93,6 +94,9 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
     } else if (override) {
       return override;
     }
+
+    const bufferAttributeNode = serializeBufferAttributeNode(node);
+    if (bufferAttributeNode) return bufferAttributeNode;
 
     const userDataNode = serializeUserDataNode(node);
     if (userDataNode) return userDataNode;

@@ -116,3 +116,13 @@ checks complete ordinary-material fallback for invalid graphs, extras and owners
 See the [exact subset, source audit and deferrals](../../docs/user-data-node-support.md).
 Browser/GPU rendering was not performed; these CPU checks do not prove compilation
 or rendered pixels.
+
+The [BufferAttributeNode suite](test/bufferAttributes.test.js) covers all four
+bounded static Float32 widths with inferred and matching explicit types through
+two JSON glTF/GLB round trips on real indexed and non-indexed triangle geometries.
+It compares native GLSL/WGSL attributes and fragment varyings, render-object
+attribute selection, version scheduling and backend update calls with mocked
+endpoints. It also checks shared/cached geometry, material clones and complete
+fallback for malformed accessor/graph/geometry inputs. See the
+[exact contract, source audit and deferred layouts](../../docs/buffer-attribute-node-support.md).
+These CPU checks do not establish device uploads or pixel correctness.
