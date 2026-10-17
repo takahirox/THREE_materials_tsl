@@ -65,6 +65,7 @@ export function validateBufferAttributeMesh(value: object, object: object) {
   check(geometry.drawRange.start === 0 && geometry.drawRange.count === Infinity);
   check(!Object.values(geometry.attributes).some((a) => a === node.value || a.array?.buffer === (node.value as BufferAttribute).array.buffer));
   const index = geometry.index;
+  check(!index || index.array.buffer !== (node.value as BufferAttribute).array.buffer);
   check((index?.count ?? count) % 3 === 0);
   if (index) check(!index.normalized && Array.from(index.array).every((i) => Number.isInteger(i) && i >= 0 && i < count));
 }

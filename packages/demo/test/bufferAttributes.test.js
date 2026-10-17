@@ -479,6 +479,35 @@ it('falls back atomically for distinct accessor definitions aliasing one native 
   await expectFallback(json);
 });
 
+it.each([true, false])('rejects index views sharing graph attribute memory (cached geometry=%s)', async (cached) => {
+  const f = fixture(3, false, 3, cached);
+  const indices = new Uint16Array(f.data.array.buffer, f.data.array.byteOffset, 3);
+  indices.set([0, 1, 2]);
+  f.scene.children[1].geometry.setIndex(new BufferAttribute(indices, 1));
+  await expect(exportScene(f.scene)).rejects.toThrow(/BufferAttributeNode/);
+});
+
+it.each([true, false])('falls back atomically for index/node accessors sharing a bufferView (cached geometry=%s)', async (cached) => {
+  const f = fixture(3, false, 3, cached);
+  f.data.array.fill(0); // The shared Uint16 view contains valid triangle indices.
+  if (!cached) {
+    f.scene.children[0].geometry.setAttribute('normal', new Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+    f.scene.children[1].geometry.setAttribute('color', new Float32BufferAttribute(Array(9).fill(1), 3));
+  }
+  const json = await exportScene(f.scene), e = json.materials[0].extensions[extensionName];
+  const ref = e.nodes[e.entrypoints.colorNode].links.value.$refAccessor;
+  const data = json.accessors[ref], primitive = json.meshes.at(-1).primitives[0];
+  const indices = structuredClone(json.accessors[primitive.indices]);
+  expect(indices.componentType).toBe(5123);
+  indices.bufferView = data.bufferView; indices.byteOffset = data.byteOffset ?? 0;
+  indices.min = [0]; indices.max = [0];
+  primitive.indices = json.accessors.push(indices) - 1;
+  expect(primitive.indices).not.toBe(ref);
+  const [a, b] = await expectFallback(json);
+  expect(a.material === b.material).toBe(cached);
+  if (!cached) expect(b.material.vertexColors).toBe(true);
+});
+
 it('leaves paired overrides in control even when an object previously used the default adapter', async () => {
   const f = fixture(); await exportScene(f.scene);
   f.node.bufferStride = 1; f.scene.children[1].geometry = new BoxGeometry();

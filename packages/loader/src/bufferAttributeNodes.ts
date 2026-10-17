@@ -111,6 +111,7 @@ export async function finishBufferAttributeNode(node: object, index: number, obj
     check(geometry.drawRange.start === 0 && geometry.drawRange.count === Infinity);
     check(!Object.values(geometry.attributes).some((a) => a === data || a.array?.buffer === data.array.buffer));
     const indices = geometry.index;
+    check(!indices || indices.array.buffer !== data.array.buffer);
     check((indices?.count ?? data.count) % 3 === 0);
     if (indices) check(!indices.normalized && Array.from(indices.array).every((i) => Number.isInteger(i) && i >= 0 && i < data.count));
   }
