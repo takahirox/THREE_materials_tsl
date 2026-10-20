@@ -126,3 +126,10 @@ endpoints. It also checks shared/cached geometry, material clones and complete
 fallback for malformed accessor/graph/geometry inputs. See the
 [exact contract, source audit and deferred layouts](../../docs/buffer-attribute-node-support.md).
 These CPU checks do not establish device uploads or pixel correctness.
+
+The [renderer-reference suite](test/rendererReferences.test.js) covers independent
+current-renderer `toneMappingExposure` float instances and exact singleton identity
+through two JSON glTF/GLB round trips, native NodeFrame exposure changes, built and
+unbuilt GLSL/WGSL flow, native render-group uniforms, material clones and complete
+ordinary-material fallback. See the [source audit and exact boundaries](../../docs/renderer-reference-node-support.md).
+These Node checks do not establish GPU compilation or pixels.

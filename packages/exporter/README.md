@@ -93,6 +93,25 @@ output conversion must arrange one final transform (for a manually transformed
 RenderPipeline, set `outputColorTransform = false`). The plugins add no output
 transform. Execution remains entirely Three.js-owned.
 
+### Current-renderer exposure references
+
+Ordinary `RendererReferenceNode` / `rendererReference('toneMappingExposure', 'float')`
+instances are supported with null renderer/object bindings, native default base
+state and scheduling, and the exact native `renderGroup`. Only the property/type
+pair is encoded; no renderer or exposure snapshot is saved. Import creates an
+independent native node reading the consumer's active renderer through normal
+Three.js setup/NodeFrame updates. Shared links retain identity within each graph,
+while the exact shared TSL `toneMappingExposure` keeps its separate singleton path.
+Built/unbuilt native caches work; customized internal uniforms, fields, callbacks,
+groups and schedules fail export. Malformed args/links and invalid graphs retain
+the complete ordinary material, extensions and primitive clones on import.
+
+Explicit renderers, other selectors/types, nested paths, custom base state and
+external renderer ownership/scheduling remain deferred. A specific renderer needs
+paired overrides with a distinct operation, validated consumer-owned binding IDs
+and a prepopulated consumer registry; unknown IDs must fail. See the
+[exact subset, native lifecycle audit, registry contract and validation](../../docs/renderer-reference-node-support.md).
+
 ### Uniform groups
 
 Ordinary `UniformNode` instances may select the exact `three/tsl` `objectGroup`,
