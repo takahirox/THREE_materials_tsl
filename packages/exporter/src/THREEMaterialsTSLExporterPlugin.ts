@@ -75,6 +75,10 @@ export class THREEMaterialsTSLExporterPlugin {
               if (data?.op === 'UserDataNode' && userDataProperty(node) !== undefined) nodes.add(node);
               return; // The internal uniform/reference are native runtime caches.
             }
+            if (node.type === 'RendererReferenceNode') {
+              this.options.nodeSerializer(node);
+              return; // Do not traverse the cached active renderer or its resources.
+            }
             for (const { childNode } of (node.getSerializeChildren?.() ?? [])) walk(childNode);
           };
           for (const node of Object.values(this.collectEntrypoints(material) ?? {})) walk(node);

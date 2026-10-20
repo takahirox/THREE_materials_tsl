@@ -6,7 +6,9 @@ exporter/loader defaults for ordinary `MaterialNode`, `ModelNode` and
 explicitly rejected. This uses the existing Draft v2.0 encoding; the specification
 and dependency ranges are unchanged. The later [UserDataNode audit](user-data-node-support.md)
 defines a separate bounded current-object scalar-float subset; arbitrary reference
-and user-data bindings remain deferred.
+and user-data bindings remain deferred. The later [renderer-reference audit](renderer-reference-node-support.md)
+defines a separate current-renderer `toneMappingExposure`/float subset; explicit
+renderer bindings remain deferred.
 
 ## Audit baseline
 

@@ -1,4 +1,5 @@
 import { serializeBufferAttributeNode } from './bufferAttributeNodes.js';
+import { serializeRendererReferenceNode } from './rendererReferenceNodes.js';
 import { serializeUserDataNode } from './userDataNodes.js';
 import { serializeBufferNode } from './bufferNodes.js';
 import { serializeUniformArrayNode, isUniformArrayNodeOp } from './uniformArrayNodes.js';
@@ -100,6 +101,8 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
 
     const userDataNode = serializeUserDataNode(node);
     if (userDataNode) return userDataNode;
+    const rendererReferenceNode = serializeRendererReferenceNode(node);
+    if (rendererReferenceNode) return rendererReferenceNode;
 
     // Shared exports above retain their Three.js-owned update behavior. Ordinary
     // instances with app callbacks cannot be represented by data-only glTF.

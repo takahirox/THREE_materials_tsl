@@ -1,4 +1,5 @@
 import { resolveBufferAttributeNode } from './bufferAttributeNodes.js';
+import { resolveRendererReferenceNode } from './rendererReferenceNodes.js';
 import { resolveUserDataNode } from './userDataNodes.js';
 import { resolveBufferNode } from './bufferNodes.js';
 import { resolveUniformArrayNode, isUniformArrayNodeOp } from './uniformArrayNodes.js';
@@ -48,6 +49,7 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
     }
     if (op === 'BufferAttributeNode') return resolveBufferAttributeNode(_args, links);
     if (op === 'UserDataNode') return resolveUserDataNode(_args, links);
+    if (op === 'RendererReferenceNode') return resolveRendererReferenceNode(_args, links);
     if (op === 'BufferNode') return resolveBufferNode(_args, links);
     if (isUniformArrayNodeOp(op)) return resolveUniformArrayNode(op, _args, links);
     if (isGeometryNodeOp(op)) return resolveGeometryNode(op, _args, links);
