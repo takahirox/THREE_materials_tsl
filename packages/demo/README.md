@@ -133,3 +133,11 @@ through two JSON glTF/GLB round trips, native NodeFrame exposure changes, built 
 unbuilt GLSL/WGSL flow, native render-group uniforms, material clones and complete
 ordinary-material fallback. See the [source audit and exact boundaries](../../docs/renderer-reference-node-support.md).
 These Node checks do not establish GPU compilation or pixels.
+
+The [position-reference suite](test/positionReferences.test.js) checks native
+current-rendered-Mesh local position reads through two JSON/GLB cycles, pure
+translation matrices and TRS, transformed parents, shared materials, geometry and
+material clones, multiple scenes, exact object association, native NodeFrame
+updates and GLSL/WGSL CPU uniform flow. It verifies strict rejection and complete
+ordinary material fallback. See the [bounded contract and installed source audit](../../docs/position-reference-node-support.md).
+Browser/GPU compilation, uploads and rendered pixels were not validated.

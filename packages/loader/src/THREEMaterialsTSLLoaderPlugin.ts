@@ -1,3 +1,4 @@
+import { validatePositionObjects } from './positionReferenceNodes.js';
 import { validateBufferAttributeAccessor, finishBufferAttributeNode } from './bufferAttributeNodes.js';
 import { validateUserDataObjects } from './userDataNodes.js';
 import type { Object3D } from 'three';
@@ -209,6 +210,7 @@ export class THREEMaterialsTSLLoaderPlugin {
       finishArrayElement(node);
       finishUniformNode(node);
       for (const material of targets) validateReferenceMaterial(node, material);
+      await validatePositionObjects(node, index, objects, this.parser);
       await validateUserDataObjects(node, index, objects, this.parser);
       resolving.delete(id);
       resolved.set(id, node);

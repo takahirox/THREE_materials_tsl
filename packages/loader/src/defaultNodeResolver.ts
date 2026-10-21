@@ -1,3 +1,4 @@
+import { resolvePositionReferenceNode } from './positionReferenceNodes.js';
 import { resolveBufferAttributeNode } from './bufferAttributeNodes.js';
 import { resolveRendererReferenceNode } from './rendererReferenceNodes.js';
 import { resolveUserDataNode } from './userDataNodes.js';
@@ -48,6 +49,7 @@ export const createDefaultNodeResolver = (options: ResolverOptions = {}): NodeRe
       return _args === undefined && (!links || Object.keys(links).length === 0) ? resolveSharedUniformGroup(op) : null;
     }
     if (op === 'BufferAttributeNode') return resolveBufferAttributeNode(_args, links);
+    if (op === 'ReferenceNode') return resolvePositionReferenceNode(_args, links);
     if (op === 'UserDataNode') return resolveUserDataNode(_args, links);
     if (op === 'RendererReferenceNode') return resolveRendererReferenceNode(_args, links);
     if (op === 'BufferNode') return resolveBufferNode(_args, links);

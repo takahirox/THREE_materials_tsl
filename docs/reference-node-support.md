@@ -8,7 +8,9 @@ and dependency ranges are unchanged. The later [UserDataNode audit](user-data-no
 defines a separate bounded current-object scalar-float subset; arbitrary reference
 and user-data bindings remain deferred. The later [renderer-reference audit](renderer-reference-node-support.md)
 defines a separate current-renderer `toneMappingExposure`/float subset; explicit
-renderer bindings remain deferred.
+renderer bindings remain deferred. The later [local-position reference audit](position-reference-node-support.md)
+defines an independent bounded current-rendered-Mesh `position`/vec3 subset for
+ordinary ReferenceNode; arbitrary and foreign-object bindings remain deferred.
 
 ## Audit baseline
 
@@ -178,7 +180,8 @@ retargeting to the mesh owning a material would lose the intended object. The
 radius scope's mixed object/geometry semantics further require an explicit
 consumer contract. All these ordinary Object3DNode variants fail export/import.
 
-For a current-mesh reference, author **ModelNode** directly. For an explicit
+For a current-mesh world-transform reference, author **ModelNode** directly.
+For local position, use the separately audited [bounded ReferenceNode subset](position-reference-node-support.md). For an explicit
 external object/material, supply a serializer override and matching consumer
 resolver for a distinct operation such as `BoundObjectPosition`. The exporter
 must map the intended target to an application-owned stable binding ID. The
