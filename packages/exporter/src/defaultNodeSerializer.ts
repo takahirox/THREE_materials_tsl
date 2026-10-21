@@ -1,3 +1,4 @@
+import { serializePositionReferenceNode } from './positionReferenceNodes.js';
 import { serializeBufferAttributeNode } from './bufferAttributeNodes.js';
 import { serializeRendererReferenceNode } from './rendererReferenceNodes.js';
 import { serializeUserDataNode } from './userDataNodes.js';
@@ -99,6 +100,8 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
     const bufferAttributeNode = serializeBufferAttributeNode(node);
     if (bufferAttributeNode) return bufferAttributeNode;
 
+    const positionReferenceNode = serializePositionReferenceNode(node);
+    if (positionReferenceNode) return positionReferenceNode;
     const userDataNode = serializeUserDataNode(node);
     if (userDataNode) return userDataNode;
     const rendererReferenceNode = serializeRendererReferenceNode(node);
@@ -187,8 +190,12 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
     }
 
     if (nodeType === 'MathNode' || nodeType === 'OperatorNode') {
+      // Only serialize this expression's fields. Recursive native serialization
+      // would inspect live reference/uniform caches before their adapters run.
+      const children = [...(node as Node).getSerializeChildren()];
+      const nodes = Object.fromEntries(children.map(({ childNode }) => [childNode.uuid, { uuid: childNode.uuid }]));
       const serializeData: Record<string, unknown> = {
-        meta: { nodes: {}, textures: {}, images: {} }
+        meta: { nodes, textures: {}, images: {} }
       };
       (node as { serialize?: (data: Record<string, unknown>) => void }).serialize?.(serializeData);
       const args = cleanArgs({
@@ -196,9 +203,6 @@ export const createDefaultNodeSerializer = (options: DefaultNodeSerializerOption
         op: serializeData.op
       });
       const links: Record<string, unknown> = {};
-      const children = (node as {
-        getSerializeChildren?: () => Iterable<{ property: string; index?: number; childNode: unknown }>;
-      }).getSerializeChildren?.();
       if (children) {
         for (const child of children) {
           assignLink(links, child.property, child.index, child.childNode);

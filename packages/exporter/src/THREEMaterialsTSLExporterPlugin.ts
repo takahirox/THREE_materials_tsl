@@ -1,3 +1,4 @@
+import { isPositionReferenceNode, validatePositionMesh, validatePositionTransport, type PositionNodeDefinition, type PositionMeshDefinition } from './positionReferenceNodes.js';
 import { validateBufferAttributeMesh, validateBufferAttributeTransport, validateBufferAttributeAliases } from './bufferAttributeNodes.js';
 import { userDataProperty, validateUserDataMesh, validateUserDataTransport, type UserDataNodeDefinition, type UserDataMeshDefinition } from './userDataNodes.js';
 import { validateGeometryMaterial } from './geometryNodes.js';
@@ -40,6 +41,7 @@ export class THREEMaterialsTSLExporterPlugin {
   private readonly accessorIndices = new Map<BufferAttribute, number>();
   private readonly materialNodes = new WeakMap<Material, Set<object>>();
   private readonly bufferAttributeNodes = new WeakMap<Material, Set<object>>();
+  private readonly positionNodes = new WeakMap<Material, Set<object>>();
   private readonly userDataNodes = new WeakMap<Material, Set<object>>();
 
   constructor(writer: GLTFWriter, options: THREEMaterialsTSLExporterPluginOptions) {
@@ -70,6 +72,11 @@ export class THREEMaterialsTSLExporterPlugin {
               if (data?.op === 'BufferAttributeNode') nodes.add(node);
               return;
             }
+            if (node.type === 'ReferenceNode') {
+              const data = this.options.nodeSerializer(node);
+              if (data?.op === 'ReferenceNode' && isPositionReferenceNode(node)) nodes.add(node);
+              return; // Never traverse the cached Mesh or Vector3 uniform.
+            }
             if (node.type === 'UserDataNode') {
               const data = this.options.nodeSerializer(node);
               if (data?.op === 'UserDataNode' && userDataProperty(node) !== undefined) nodes.add(node);
@@ -85,6 +92,7 @@ export class THREEMaterialsTSLExporterPlugin {
           checked.set(material, nodes);
         }
         for (const node of checked.get(material)!) {
+          validatePositionMesh(node, object);
           validateUserDataMesh(node, object);
           validateBufferAttributeMesh(node, object);
         }
@@ -110,9 +118,10 @@ export class THREEMaterialsTSLExporterPlugin {
   afterParse() {
     // References may point to resources emitted by later meshes or animations.
     // GLTFWriter exposes json at runtime; @types/three's declarations omit it.
-    const { json, nodeMap } = this.writer as GLTFWriter & {
-      json: { textures?: unknown[]; accessors?: unknown[]; nodes?: UserDataNodeDefinition[]; meshes?: UserDataMeshDefinition[] };
+    const { json, nodeMap, cache } = this.writer as GLTFWriter & {
+      json: { textures?: unknown[]; accessors?: unknown[]; nodes?: (UserDataNodeDefinition & PositionNodeDefinition)[]; meshes?: (UserDataMeshDefinition & PositionMeshDefinition)[] };
       nodeMap?: Map<Object3D, number>;
+      cache: { meshes: Map<string, number>; materials: Map<string, number> };
     };
     // writeMesh is cached by geometry/material, whereas nodeMap includes every
     // exported object, including meshes sharing the exact same geometry.
@@ -122,6 +131,14 @@ export class THREEMaterialsTSLExporterPlugin {
         for (const node of this.bufferAttributeNodes.get(material) ?? []) {
           const nodeDef = json.nodes?.[index];
           validateBufferAttributeTransport(node, object, nodeDef?.mesh === undefined ? undefined : json.meshes?.[nodeDef.mesh]);
+        }
+        for (const node of this.positionNodes.get(material) ?? []) {
+          const nodeDef = json.nodes?.[index];
+          // Match r186's native geometry/material and tangent-sensitive cache keys.
+          const materialKey = (material as import('three').MeshStandardMaterial).normalMap ?
+            `${material.uuid}:${mesh.geometry.hasAttribute('tangent')}` : material.uuid;
+          validatePositionTransport(node, object, nodeDef, nodeDef?.mesh === undefined ? undefined : json.meshes?.[nodeDef.mesh],
+            cache.meshes.get(`${mesh.geometry.uuid}:${material.uuid}`), cache.materials.get(materialKey));
         }
         for (const node of this.userDataNodes.get(material) ?? []) {
           const nodeDef = json.nodes?.[index];
@@ -230,6 +247,10 @@ export class THREEMaterialsTSLExporterPlugin {
         validateBufferAttributeAliases(node as object, this.accessorIndices.keys());
         if (!this.bufferAttributeNodes.has(material)) this.bufferAttributeNodes.set(material, new Set());
         this.bufferAttributeNodes.get(material)!.add(node as object);
+      }
+      if (exportData.op === 'ReferenceNode' && isPositionReferenceNode(node as object)) {
+        if (!this.positionNodes.has(material)) this.positionNodes.set(material, new Set());
+        this.positionNodes.get(material)!.add(node as object);
       }
       if (exportData.op === 'UserDataNode' && userDataProperty(node as object) !== undefined) {
         if (!this.userDataNodes.has(material)) this.userDataNodes.set(material, new Set());

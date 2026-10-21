@@ -270,6 +270,31 @@ Framebuffer-depth textures, foreign-camera and logarithmic/reversed-depth
 conversion need explicit resource/encoding bindings. See the
 [exact four-class audit, stage/backend limitations and adapter paths](../../docs/geometry-node-support.md).
 
+### Bounded current-object local position references
+
+The paired defaults support exact native `ReferenceNode('position', 'vec3')` /
+`reference('position', 'vec3')` with null object/count/group/name and native default
+base/update state. The graph carries only selector/type; Three.js lazily reads
+the **current rendered Mesh's local position**, including live mutations and
+switching Meshes sharing a material. This is independent of ModelNode's world
+position. Native built/unbuilt caches are validated and omitted from file data.
+
+The initial transform subset requires an ordinary single-primitive triangle Mesh
+with a scalar material, finite **nonzero** local translation, identity local
+rotation/scale, and either a pure translation matrix or explicit translation TRS.
+Fixed matrices must match position exactly. Every material use is checked against
+actual exported node definitions and imported native node/render-Mesh ownership;
+shared geometry/materials, material clones and distinct nodes in multiple scenes
+work. Parent transforms may differ. Missing transforms, signed zero, mesh-local
+rotation/scale, general/sheared matrices, pivots, skins, instancing, morphs,
+attachments, multi-primitive wrappers and unproven scene clones are deferred.
+
+Foreign objects, other selectors/types, custom callbacks/groups/names/state and
+extra links require paired consumer adapters. Invalid exports fail explicitly;
+invalid imports preserve the complete ordinary material, other supported material
+extensions, clones and caches. See the [exact contract, installed r186 audit,
+consumer binding-ID adapter path and validation](../../docs/position-reference-node-support.md).
+
 ### Bounded current-object user data
 
 The paired defaults support ordinary `UserDataNode` / `userData('tint', 'float')`
