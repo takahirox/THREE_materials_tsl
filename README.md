@@ -68,6 +68,19 @@ compatible Three.js runtime.
 * Enable round-tripping in Three.js (TSL → glTF → TSL)
 * Keep the specification minimal and implementation-driven
 
+## UI/UX
+
+Apply these principles to the round-trip demo, loader/exporter messages,
+documented commands and examples, and any future graphical interface:
+
+1. **Keep it simple.** Show only necessary information and actions; avoid unnecessary UI elements.
+2. **Show, don't tell.** Prefer layout, spacing and visual hierarchy over explanatory labels or prose to communicate structure.
+3. **Intuitive and predictable.** Keep appearance and behavior consistent with user expectations; don't interrupt the user's work.
+
+Preserve necessary control labels, accessible names, error messages, and information
+needed to use the interface. Simplification must preserve meaningful consent,
+destructive-action safeguards, and necessary warnings.
+
 ## Design Rationale
 
 The design is **Three.js-first, with minimal implementation**: reuse the existing

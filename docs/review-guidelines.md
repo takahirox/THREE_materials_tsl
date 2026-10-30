@@ -18,6 +18,8 @@ Verify that the implementation is correct, coherent with the existing package st
 and produces the expected outcome. Check that affected documentation is accurate.
 Preserve useful existing instructions and avoid duplicating package READMEs.
 
+Review applicable interface changes against the [UI/UX principles](../README.md#uiux).
+
 Reject unjustified scope: unrelated refactoring, speculative extensibility, unnecessary
 abstractions, frameworks, policies, or configuration. Prefer the smallest change that
 fully solves the Issue. Extra complexity is not evidence of completeness.
