@@ -36,6 +36,13 @@ whitespace, and consistency. Do not require new runtime tests, hardware/device c
 or deployed-site verification. For code changes, assess relevant checks in the affected
 packages using their existing scripts and documentation.
 
+Apply the [test and CI performance principles](development-flow.md#test-and-ci-performance-principles).
+For new or expanded checks, assess additional defect coverage, overlap with existing
+coverage, and added execution and maintenance cost.
+
+> Does this change provide sufficient confidence with the lightest appropriate
+> validation, without redundant execution?
+
 Keep optional validation separate from approval conditions. Human confirmation,
 physical-device testing, subjective evaluation, and external approval are mandatory
 only when necessary for the actual Issue, with a reason and expected result.

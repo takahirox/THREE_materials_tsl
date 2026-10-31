@@ -59,7 +59,8 @@ resulting behavior, focused changes, related Issues, and validation actually per
 Use a concise English commit message describing what changed and why, referencing the Issue.
 Target `main` unless the Issue or workflow selects another base branch.
 
-Choose checks appropriate to the changed files and actual repository tooling:
+Choose checks appropriate to the changed files and actual repository tooling, using
+the [test and CI performance principles](#test-and-ci-performance-principles):
 
 - For templates/documentation only, check Markdown structure, template front matter,
   links, whitespace (`git diff --check`), and consistency with the Issue and related guidance.
@@ -74,6 +75,59 @@ with reasons where needed. Keep pre-merge results separate from pending post-mer
 Claim to close an Issue only when its implementation and mandatory pre-merge acceptance
 are fully addressed. Describe intentional partial work clearly and leave the Issue open.
 Pending post-merge verification does not make an otherwise complete implementation partial.
+
+### Test and CI performance principles
+
+**Detect the required failures at the lightest appropriate layer, without redundant
+execution.** Preserve required correctness, regressions, and meaningful integration coverage.
+
+The [demo's documented checks](../packages/demo/README.md#tests) include the shared
+Vitest suite for both plugins, demo typechecking, and package builds. Tests run in
+Node with real Three.js loader/exporter round trips, CPU image handling, shader
+generation, and runtime updates; they do not establish GPU compilation or pixel
+correctness. The only checked-in workflow, [Pages deployment](../.github/workflows/pages.yml),
+builds and deploys on `main` pushes or manual dispatch; it does not run tests or
+typechecking, and there is no PR validation workflow or root test command.
+
+1. **Prefer the lightest meaningful layer.** Use fast unit/component checks for
+   calculations, branches, and broad data combinations. Keep real loader/exporter
+   round trips for serialization, resource bindings, sharing, and fallback boundaries.
+   Use browser/WebGPU rendering or end-to-end checks when the behavior requires that
+   environment, such as demo interaction or GPU output. Each test should catch a
+   concrete defect rather than mirror the implementation.
+2. **Choose combinations deliberately.** Select representative JSON glTF/GLB,
+   node/material, clone/state, and GLSL/WGSL cases covering distinct processing paths.
+   Exhaust combinations where their interactions require it; do not automatically
+   multiply every format, model, material, backend, and deployment path. Redistributing
+   checks must retain required regressions and meaningful integration assertions.
+3. **Match validation to the change.** Documentation-only changes use the Markdown,
+   link, consistency, and whitespace checks above. Demo UI changes need applicable
+   typechecking/builds and interaction checks; loader/exporter runtime changes need
+   relevant shared tests and package builds. CI/build changes validate the affected
+   commands, configuration, and artifacts. Use focused checks for fast feedback and
+   the demo's documented full regression sequence where applicable before merge;
+   deployment is not a substitute. Keep mandatory pre-merge checks tied to the Issue
+   and change, optional checks separate, and genuinely post-merge-only publication or
+   published-site verification separately recorded when required. Package publication
+   remains [manual](../packages/exporter/README.md#manual-publishing-maintainer-only),
+   with clean builds enforced by each plugin's `prepack` hook.
+4. **Reuse work and avoid duplicate execution.** Reuse builds, prepared fixtures,
+   downloads, and expensive setup with cache keys reflecting inputs, dependencies,
+   and tool versions, while isolating mutable test state. Pages currently caches npm
+   downloads using the demo lockfile. For future CI changes, avoid equivalent push/PR
+   runs for the same revision, stop superseded runs when safe, and preserve necessary
+   deployment ordering. Parallelize independent work based on measured resource use;
+   more workers do not necessarily improve feedback time.
+5. **Review value and cost together.** Identify the additional defect a new or expanded
+   test detects, whether existing coverage already provides that assurance, and its
+   execution and maintenance cost. Watch repeated fresh browser/renderer/shader-builder
+   setup, large fixtures, long emulated paths, and Cartesian-product growth.
+6. **Maintain an execution-time budget.** No normal-CI timing baseline or target is
+   recorded yet. Establish one from representative measurements during actual test/CI
+   performance work, distinguishing elapsed feedback time, total runner/computation
+   time, and queue time. Monitor growth and investigate work exceeding that target;
+   revisit validation structure and duplication while retaining meaningful assertions
+   and required coverage. These principles add no benchmark, hardware, or merge gate.
 
 ## 3. Review Before Merge
 
