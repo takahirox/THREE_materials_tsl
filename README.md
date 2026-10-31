@@ -10,6 +10,7 @@ Use English for new collaboration content. Follow the [development flow](docs/de
 and [review and merge guidelines](docs/review-guidelines.md). AI agents should start with
 [AGENTS.md](AGENTS.md). Use the [Issue template](.github/ISSUE_TEMPLATE/issue.md)
 and [Pull Request template](.github/pull_request_template.md).
+Choose validation using the [test and CI performance principles](docs/development-flow.md#test-and-ci-performance-principles).
 
 ## Plugins
 
