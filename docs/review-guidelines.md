@@ -10,7 +10,9 @@ Read the source Issue, PR description, full diff, and reported validation result
 Treat the Issue's problem, expected outcome, and mandatory pre-merge acceptance as the
 reference. Check each requirement against the implementation and evidence.
 Do not approve a PR as closing an Issue when required implementation is missing.
-Intentional partial work must be identified and the Issue must remain open.
+Intentional partial work must identify remaining scope and must not automatically
+close the parent Issue. Pending post-merge-only verification does not make an
+otherwise complete implementation partial.
 
 ## Check Scope and Correctness
 
@@ -54,6 +56,14 @@ belong before merge; publication and published-site verification belong after me
 Pre-merge evidence does not prove deployment or publication succeeded. This distinction
 does not waive implementation requirements or applicable pre-merge tests.
 
+Preserve the normal `Closes #N` reference when implementation and mandatory pre-merge
+acceptance are complete. Do not request removing it, keeping the source Issue open,
+or withholding approval solely because post-merge-only checks are pending.
+ProjectWeave publication adds this reference and its merge/close stages close the
+Issue; requesting revisions to undo that lifecycle creates repeated Review → Fix → Publish
+→ Review rounds. Missing implementation, mandatory pre-merge tests, required protections,
+and genuinely necessary pre-merge human acceptance remain blockers.
+
 ## Choose the Review Outcome
 
 Clearly distinguish these outcomes so the workflow can take the appropriate next step:
@@ -76,6 +86,13 @@ designated stage when the current stage permits only implementation or review.
 
 ## Report Post-Merge Results
 
-When required, verify the recorded post-merge work after merge. Keep it pending until
-performed, and record actual results, including failures and necessary follow-up.
-Do not describe publication or deployment as successful without that evidence.
+Close the fully implemented original Issue after successful merge, then follow the
+[post-merge lifecycle](development-flow.md#6-perform-required-post-merge-verification)
+for required checks, evidence in the merged PR, closed Issue, or linked report, and
+actual defects tracked in new or existing equivalent linked Issues. Do not reopen
+the original Issue solely for this follow-up.
+
+Keep pending, unperformed, or environment-blocked checks explicit; closure does not
+claim a pass, and an unavailable environment alone does not establish a product defect.
+Do not describe publication or deployment as successful without evidence. Apply the
+current lifecycle over older keep-open instructions while preserving historical results.

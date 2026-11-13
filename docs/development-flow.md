@@ -1,8 +1,10 @@
 # Development Flow
 
 The shared flow for THREE_materials_tsl contributors and AI agents is:
-Issue → implementation → Pull Request → review → revision as needed → merge.
-Perform post-merge verification only when the Issue requires it.
+Issue → implementation → Pull Request → review → revision as needed → merge and
+close the original Issue → required post-merge verification, if any.
+Perform post-merge verification only when the actual change requires it and record
+it in the Issue.
 
 ## Collaboration language
 
@@ -64,16 +66,18 @@ the [test and CI performance principles](#test-and-ci-performance-principles):
 
 - For templates/documentation only, check Markdown structure, template front matter,
   links, whitespace (`git diff --check`), and consistency with the Issue and related guidance.
-  Use available lint/parse tools when applicable. No new runtime tests, hardware/device
-  checks, or deployed-site verification are required for such a change.
+  Use available lint/parse tools when applicable. No new runtime tests, routine manual
+  approval, hardware/device checks, heavyweight model downloads, or deployed-site
+  verification are required for such a change.
 - For code changes, inspect the affected package's scripts and run relevant available
   checks. Each package currently provides `npm run build` in its own directory; there
   is no repository-wide test script. Do not invent commands or require unrelated suites.
 
 Report passing and failing checks, skipped checks, and unperformed checks accurately,
 with reasons where needed. Keep pre-merge results separate from pending post-merge work.
-Claim to close an Issue only when its implementation and mandatory pre-merge acceptance
-are fully addressed. Describe intentional partial work clearly and leave the Issue open.
+Use the normal `Closes #N` reference when the Issue's implementation and mandatory
+pre-merge acceptance are fully addressed. Describe intentional partial work and its
+remaining scope clearly; do not automatically close the parent Issue for partial work.
 Pending post-merge verification does not make an otherwise complete implementation partial.
 
 ### Test and CI performance principles
@@ -148,9 +152,28 @@ Approve and merge when the implementation is sufficient, mandatory pre-merge che
 pass, and no blocking review findings or necessary human questions remain. Follow the
 repository's configured merge rules and the active workflow's authorization; a stage
 limited to implementation must leave merging to the designated merge stage.
+After successful merge, close the fully implemented original Issue, preserving the
+normal `Closes #N` reference even when required post-merge-only checks are pending.
+Review and publication must not loop by repeatedly removing and restoring that
+reference solely for pending post-merge verification.
+Missing implementation, mandatory pre-merge tests, required protections, and genuinely
+necessary pre-merge human acceptance remain blockers.
 
 ## 6. Perform Required Post-Merge Verification
 
-If required, perform the separately recorded post-merge checks. Report them as pending
-until performed, then record actual results, failures, and necessary follow-up.
-Pre-merge validation does not prove deployment or publication succeeded.
+After merge and closure, perform any separately recorded required post-merge checks.
+Record evidence in the merged PR, closed Issue, or a linked validation report: the
+revision and environment checked, checks performed, actual results, and follow-up.
+Keep pending, unperformed, or environment-blocked checks explicit, with reasons.
+Issue closure does not claim those checks passed; pre-merge validation does not prove
+deployment or publication succeeded. An unavailable test environment alone is not
+evidence of a product defect.
+
+If verification reveals an actual defect, check for an existing equivalent Issue first.
+Use that Issue or create a new one with reproduction steps, affected revision,
+expected and actual behavior, and links to the original Issue and PR. Do not keep or
+reopen the original Issue solely for post-merge follow-up.
+
+This lifecycle supersedes older instructions to keep an implemented Issue open solely
+until post-merge verification finishes. Preserve historical test outcomes and evidence;
+do not rewrite them or infer that pending checks passed.

@@ -19,6 +19,8 @@ Describe what should be true when the Issue is resolved.
 
 Add relevant context, affected packages, examples, logs, or related Issues.
 For a reproducible problem, include steps, actual and expected results, and relevant versions.
+For a post-merge defect, check for an equivalent Issue first and include the affected
+revision and links to the original Issue and PR.
 
 ## Pre-merge acceptance
 
@@ -39,4 +41,7 @@ List useful additional checks separately from mandatory acceptance, or state "No
 Record only genuinely necessary checks that can be performed only after merge, or state "None."
 For a merge-triggered deployment, publication and published-site verification belong here.
 Keep these checks pending until performed; pre-merge validation does not prove publication succeeded.
-See the [review guidance](https://github.com/takahirox/THREE_materials_tsl/blob/main/docs/review-guidelines.md#check-pre-merge-acceptance-and-post-merge-verification).
+Close the fully implemented Issue after merge, then record required verification and
+track actual defects in linked Issues under the
+[post-merge lifecycle](https://github.com/takahirox/THREE_materials_tsl/blob/main/docs/development-flow.md#6-perform-required-post-merge-verification).
+Closure does not claim pending, unperformed, or environment-blocked checks passed.
